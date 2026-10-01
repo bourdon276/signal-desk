@@ -1,9 +1,10 @@
+from contextlib import asynccontextmanager
+from pathlib import Path
+from threading import Event, Thread
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
-from contextlib import asynccontextmanager
-from threading import Event, Thread
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -11,6 +12,7 @@ from information_agent.api import router
 from information_agent.config import settings
 from information_agent.db import SessionLocal
 from information_agent.sync_worker import run_loop
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):

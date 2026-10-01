@@ -12,7 +12,6 @@ from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.models import User
 
-
 bearer = HTTPBearer(auto_error=False)
 TOKEN_AGE_SECONDS = 7 * 24 * 60 * 60
 

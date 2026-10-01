@@ -18,6 +18,7 @@ const watchNames: Record<string, string> = {
 async function request<T>(path: string, token?: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...options,
+    signal: AbortSignal.timeout(30000),
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options?.headers },
   })
   const body = await response.json().catch(() => ({}))
@@ -45,6 +46,7 @@ export default function App() {
   const [question, setQuestion] = useState('我关注的对象最近有什么消息？')
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
@@ -78,24 +80,30 @@ export default function App() {
   }
 
   async function toggleWatch(id: string) {
+    if (saving) return
+    setSaving(true)
     setError('')
     try {
       await request('/watches', token, { method: 'PUT', body: JSON.stringify({ watch_id: id, enabled: !watches.includes(id) }) })
       await refresh()
-    } catch (cause) { setError((cause as Error).message) }
+    } catch (cause) { setError((cause as Error).message) } finally { setSaving(false) }
   }
 
   async function react(item: FeedItem, action: string) {
+    if (saving) return
+    setSaving(true)
     setError('')
     try {
       await request('/feedback', token, { method: 'POST', body: JSON.stringify({ item_id: item.id, action }) })
       await refresh()
-    } catch (cause) { setError((cause as Error).message) }
+    } catch (cause) { setError((cause as Error).message) } finally { setSaving(false) }
   }
 
   async function undo(id: string) {
+    if (saving) return
+    setSaving(true)
     try { await request(`/feedback/${id}/undo`, token, { method: 'POST' }); await refresh() }
-    catch (cause) { setError((cause as Error).message) }
+    catch (cause) { setError((cause as Error).message) } finally { setSaving(false) }
   }
 
   async function ask(event: FormEvent) {

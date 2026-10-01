@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 from datetime import datetime
+from time import perf_counter
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -11,10 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from information_agent.config import settings
 from information_agent.agent_tools import news_age_label, scoped_registry
+from information_agent.config import settings
 from information_agent.db import get_db
-from information_agent.domain import WATCHES, valid_watch
+from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
 from information_agent.models import AgentRun, Feedback, Item, User, Watch, now_utc
 from information_agent.ranking import ranked_items
 from information_agent.security import current_user, issue_token, password_hash, password_matches
@@ -80,10 +82,7 @@ def catalog() -> dict:
 @router.get("/sources")
 def source_status(db: Session = Depends(get_db)) -> dict:
     latest = db.scalar(
-        select(AgentRun)
-        .where(AgentRun.kind == "fed_rss_sync")
-        .order_by(AgentRun.started_at.desc())
-        .limit(1)
+        select(AgentRun).where(AgentRun.kind == "fed_rss_sync").order_by(AgentRun.started_at.desc()).limit(1)
     )
     success = db.scalar(
         select(AgentRun)
@@ -142,9 +141,7 @@ def list_watches(user: User = Depends(current_user), db: Session = Depends(get_d
 
 
 @router.put("/watches")
-def update_watch(
-    payload: WatchInput, user: User = Depends(current_user), db: Session = Depends(get_db)
-) -> dict:
+def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     if not valid_watch(payload.watch_id):
         raise HTTPException(status_code=422, detail="未知关注对象")
     existing = db.scalar(select(Watch).where(Watch.user_id == user.id, Watch.watch_id == payload.watch_id))
@@ -166,9 +163,7 @@ def feed(
 
 
 @router.post("/feedback", status_code=201)
-def add_feedback(
-    payload: FeedbackInput, user: User = Depends(current_user), db: Session = Depends(get_db)
-) -> dict:
+def add_feedback(payload: FeedbackInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     if payload.action not in {"interested", "not_interested", "duplicate"}:
         raise HTTPException(status_code=422, detail="不支持的反馈动作")
     item = db.get(Item, payload.item_id)
@@ -185,7 +180,9 @@ def add_feedback(
 
 @router.get("/feedback")
 def list_feedback(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    events = list(db.scalars(select(Feedback).where(Feedback.user_id == user.id).order_by(Feedback.created_at.desc()).limit(100)))
+    events = list(
+        db.scalars(select(Feedback).where(Feedback.user_id == user.id).order_by(Feedback.created_at.desc()).limit(100))
+    )
     return {
         "events": [
             {
@@ -202,9 +199,7 @@ def list_feedback(user: User = Depends(current_user), db: Session = Depends(get_
 
 
 @router.post("/feedback/{feedback_id}/undo")
-def undo_feedback(
-    feedback_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)
-) -> dict:
+def undo_feedback(feedback_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     event = db.scalar(select(Feedback).where(Feedback.id == feedback_id, Feedback.user_id == user.id))
     if event is None:
         raise HTTPException(status_code=404, detail="反馈不存在")
@@ -263,6 +258,9 @@ def list_runs(
                 "detail": run.detail,
                 "started_at": run.started_at.isoformat(),
                 "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "duration_ms": round((run.finished_at - run.started_at).total_seconds() * 1000)
+                if run.finished_at
+                else None,
             }
             for run in rows
         ]
@@ -270,52 +268,70 @@ def list_runs(
 
 
 @router.post("/ask")
-async def ask(
-    payload: AskInput, user: User = Depends(current_user), db: Session = Depends(get_db)
-) -> dict:
+async def ask(payload: AskInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     """Evidence-only answer until a model provider is explicitly configured."""
     question = payload.question.strip()
-    matching = [key for key, name in WATCHES.items() if name.lower() in question.lower()]
-    if "通鼎" in question:
-        matching.append("stock:002491")
-    if "辉煌" in question:
-        matching.append("stock:002296")
-    if "黄金" in question or "金价" in question:
-        matching.append("gold:london")
-    watch_id = matching[0] if matching else None
+    matching = resolve_watch_ids(question)
+    supported = bool(matching) or any(word in question for word in ("关注", "资讯", "消息", "新闻", "动态"))
     run = AgentRun(user_id=user.id, kind="evidence_answer", status="running", detail="")
     db.add(run)
     db.commit()
     registry = scoped_registry(user.id)
+    trace = []
+
+    async def execute_tool(name: str, arguments: dict):
+        started = perf_counter()
+        result = await registry.execute(name, arguments)
+        failed = isinstance(result, str)
+        trace.append(
+            {
+                "tool": name,
+                "arguments": arguments,
+                "status": "failure" if failed else "success",
+                "duration_ms": round((perf_counter() - started) * 1000),
+                "result_count": len(result) if isinstance(result, list) else int(result is not None and not failed),
+            }
+        )
+        if failed:
+            raise RuntimeError(f"{name} failed")
+        return result
+
     search_args = {"limit": 5}
-    if watch_id:
-        search_args["watch_id"] = watch_id
+    if matching:
+        search_args["watch_ids"] = matching
     try:
-        found = await registry.execute("search_items", search_args)
+        found = await execute_tool("search_items", search_args) if supported else []
         if not isinstance(found, list):
             raise RuntimeError("search_items returned an error")
         evidence = []
         for row in found:
-            detail = await registry.execute("get_evidence", {"item_id": row["id"]})
+            detail = await execute_tool("get_evidence", {"item_id": row["id"]})
             if isinstance(detail, dict) and "url" in detail:
                 evidence.append(detail)
     except Exception as exc:
         run.status = "failure"
-        run.detail = f"tool_error={type(exc).__name__}: {str(exc)[:160]}"
+        run.detail = json.dumps(
+            {"tools": trace, "error_type": type(exc).__name__, "model_tokens": 0, "model_cost_cny": 0},
+            ensure_ascii=False,
+        )
         run.finished_at = now_utc()
         db.commit()
         raise HTTPException(status_code=503, detail="证据检索暂时不可用") from None
-    if evidence:
+    if not supported:
+        answer = "当前仅支持查询关注对象的已收录资讯，例如“通鼎互联和 CS2 最近有什么消息？”。暂不支持其他问题。"
+    elif evidence:
         lines = ["当前已入库的相关消息："]
         for item in evidence:
             lines.append(f"• {item['title']}（{item['source_name']}，{news_age_label(item['published_at'])}）")
-        lines.append("这些是来源记录，不能据此推断价格走势或给出交易建议。")
+        lines.append("以上按个人反馈和时间排序，仅覆盖已收录的来源记录。")
         answer = "\n".join(lines)
     else:
         answer = "目前你的关注范围内没有可引用的已入库消息。这不代表外部没有新消息，可能是来源尚未接入或同步失败。"
     run.status = "success"
     run.item_count = len(evidence)
-    run.detail = f"tools=search_items,get_evidence; watch_id={watch_id or 'all'}"
+    run.detail = json.dumps(
+        {"tools": trace, "watch_ids": matching or "all", "model_tokens": 0, "model_cost_cny": 0}, ensure_ascii=False
+    )
     run.finished_at = now_utc()
     db.commit()
     return {

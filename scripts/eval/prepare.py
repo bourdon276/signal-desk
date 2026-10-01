@@ -13,7 +13,6 @@ from sqlalchemy import select
 from information_agent.db import SessionLocal
 from information_agent.models import Item
 
-
 FIELDS = (
     "sample_id",
     "watch_id",
@@ -61,23 +60,25 @@ def main() -> None:
         stable_id = hashlib.sha256(item.canonical_url.encode()).hexdigest()[:16]
         published = item.published_at.isoformat() if item.published_at else ""
         for target_watch_id in (item.watch_id, NEGATIVE_TARGET[item.watch_id]):
-            rows.append({
-                "sample_id": f"{stable_id}:{target_watch_id}",
-                "watch_id": target_watch_id,
-                "item_watch_id": item.watch_id,
-                "event_id": item.event_key,
-                "source_id": item.source_name,
-                "source_type": item.source_type,
-                "published_at": published,
-                "canonical_url": item.canonical_url,
-                "title": item.title,
-                "relevance": "",
-                "entity_match": "",
-                "duplicate_of": "",
-                "evidence_supported": "",
-                "annotator_id": "",
-                "notes": "",
-            })
+            rows.append(
+                {
+                    "sample_id": f"{stable_id}:{target_watch_id}",
+                    "watch_id": target_watch_id,
+                    "item_watch_id": item.watch_id,
+                    "event_id": item.event_key,
+                    "source_id": item.source_name,
+                    "source_type": item.source_type,
+                    "published_at": published,
+                    "canonical_url": item.canonical_url,
+                    "title": item.title,
+                    "relevance": "",
+                    "entity_match": "",
+                    "duplicate_of": "",
+                    "evidence_supported": "",
+                    "annotator_id": "",
+                    "notes": "",
+                }
+            )
         normalized.append(
             {
                 "item_id": stable_id,

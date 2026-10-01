@@ -21,6 +21,7 @@ def main() -> None:
     items = load_items(args.items)
     by_id = {item["item_id"]: item for item in items}
     labels: dict[tuple[str, str], int] = {}
+    duplicate_of: dict[tuple[str, str], str] = {}
     with args.labels.open(encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
             value = row["relevance"].strip()
@@ -31,6 +32,7 @@ def main() -> None:
                 if key in labels:
                     parser.error(f"duplicate judgment for {key}")
                 labels[key] = int(value)
+                duplicate_of[key] = row["duplicate_of"].strip()
 
     baseline_rows: dict[str, list[str]] = defaultdict(list)
     for row in rank(items):
@@ -52,6 +54,12 @@ def main() -> None:
                 "returned_at_5": len(top),
                 "p_at_5": round(sum(judged[item_id] for item_id in top) / 5, 3) if len(top) == 5 else None,
                 "relevant_at_5": sum(judged[item_id] for item_id in top),
+                "duplicate_rate_at_5": round(
+                    sum(bool(duplicate_of[(watch_id, item_id)]) for item_id in top) / len(top), 3
+                )
+                if top
+                else None,
+                "false_positive_urls": [by_id[item_id]["url"] for item_id in top if not judged[item_id]],
                 "top_ids": top,
             }
         results.append(
@@ -66,17 +74,29 @@ def main() -> None:
 
     report = {
         "unique_links": len(by_id),
+        "labeled_unique_links": len({item_id for _, item_id in labels}),
         "human_judgments": len(labels),
         "watch_results": results,
         "limits": [
             "P@5 is N/A when fewer than five judged items are returned.",
             "The corpus is intentionally curated and small; it does not estimate production relevance.",
-            "Source tags were assigned during manual intake, so this comparison measures entity coverage, not learning from feedback.",
+            "Source tags were assigned during manual intake, so this comparison measures entity coverage, "
+            "not learning from feedback.",
         ],
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"unique_links": len(by_id), "human_judgments": len(labels), "output": str(args.output)}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "unique_links": len(by_id),
+                "labeled_unique_links": report["labeled_unique_links"],
+                "human_judgments": len(labels),
+                "output": str(args.output),
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":

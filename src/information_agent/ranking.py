@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,8 +18,21 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
             .limit(500)
         )
     )
-    feedback = list(db.scalars(select(Feedback).where(Feedback.user_id == user_id, Feedback.undone_at.is_(None))))
+    feedback = list(
+        db.scalars(
+            select(Feedback)
+            .where(Feedback.user_id == user_id, Feedback.undone_at.is_(None))
+            .order_by(Feedback.created_at, Feedback.id)
+        )
+    )
+    # Preference events remain meaningful after their original card leaves
+    # the bounded candidate window. Load only the referenced metadata.
+    referenced_ids = {event.item_id for event in feedback}
     item_by_id = {item.id: item for item in items}
+    missing_ids = referenced_ids - item_by_id.keys()
+    if missing_ids:
+        old_items = db.scalars(select(Item).where(Item.id.in_(missing_ids), Item.watch_id.in_(watch_ids)))
+        item_by_id.update({item.id: item for item in old_items})
     hidden_events: set[str] = set()
     hidden_items: set[str] = set()
     watch_weight = dict.fromkeys(watch_ids, 0)
@@ -37,14 +50,14 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
             watch_weight[item.watch_id] = min(3, watch_weight[item.watch_id] + 1)
             liked.add(item.id)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = []
     for item in items:
         if item.event_key in hidden_events or item.id in hidden_items:
             continue
         published = item.published_at or item.created_at
         if published.tzinfo is None:
-            published = published.replace(tzinfo=timezone.utc)
+            published = published.replace(tzinfo=UTC)
         age_hours = max(0, (now - published).total_seconds() / 3600)
         recency = max(0, 100 - age_hours / 24)
         score = round(recency + watch_weight[item.watch_id] * 15 + (10 if item.id in liked else 0), 2)
@@ -69,5 +82,6 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
                 "reason": reason,
             }
         )
-    rows.sort(key=lambda row: (-row["score"], row["id"]))
+    # Stable sorting preserves the database's recency order when scores tie.
+    rows.sort(key=lambda row: -row["score"])
     return rows[:limit]

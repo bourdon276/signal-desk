@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, urlunsplit
@@ -49,7 +49,7 @@ def published_at(entry: dict) -> datetime | None:
     parsed = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed is None:
         return None
-    return datetime(*parsed[:6], tzinfo=timezone.utc)
+    return datetime(*parsed[:6], tzinfo=UTC)
 
 
 def sync() -> dict:
@@ -59,11 +59,16 @@ def sync() -> dict:
         db.commit()
         try:
             with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-                response = client.get(FEED_URL, headers={"User-Agent": "PersonalInfoAgent/0.1 RSS reader"})
-                response.raise_for_status()
-                if len(response.content) > MAX_FEED_BYTES:
-                    raise ValueError("RSS feed exceeds size limit")
-            parsed = feedparser.parse(response.content)
+                content = bytearray()
+                with client.stream(
+                    "GET", FEED_URL, headers={"User-Agent": "PersonalInfoAgent/0.1 RSS reader"}
+                ) as response:
+                    response.raise_for_status()
+                    for chunk in response.iter_bytes():
+                        if len(content) + len(chunk) > MAX_FEED_BYTES:
+                            raise ValueError("RSS feed exceeds size limit")
+                        content.extend(chunk)
+            parsed = feedparser.parse(bytes(content))
             if parsed.bozo and not parsed.entries:
                 raise ValueError("invalid RSS feed")
             created = 0

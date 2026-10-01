@@ -11,7 +11,7 @@
 - 电竞：英雄联盟、CS2、无畏契约
 - 每周 AI 前沿简报与私有阅读源列入后续阶段
 
-## 一周 MVP 与小项目 0 进度
+## 当前进度
 
 - 已形成[来源矩阵](docs/source_matrix.md)、[用户流程](docs/user_flow.md)、[试用预算](docs/budget.md)、[长期 Eval 协议](docs/eval/protocol.md)和[固定关键词基线](scripts/eval/baseline.py)。
 - 已准备[标注模板](data/eval/annotation_template.csv)、[试用者匿名登记表](docs/beta_recruitment.md)与[来源权限跟进清单](docs/source_permissions.md)。
@@ -42,6 +42,27 @@ uv run uvicorn information_agent.main:app --reload
 
 RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` 每小时运行。只访问固定的美联储 RSS URL；若请求失败，已有条目仍可阅读，`/api/sources` 会显示失败与最后成功时间。手动收录只保存标题、时间和原文 URL，不抓第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
 
+### 数据流与 Agent 边界
+
+```text
+美联储 RSS ──→ 固定来源适配器 ─┐
+                                ├→ items（PostgreSQL）→ 按用户关注与反馈排序 → React 信息流
+人工核对原文链接 ────────────────┘                                    │
+                                       search_items / get_evidence ←┘
+                                                  ↓
+                                      带原文链接的证据回答
+```
+
+用户关注和反馈按账号保存在 PostgreSQL；“没兴趣”隐藏当前卡片并轻度下调相同关注对象，“重复”隐藏相同事件键，撤销后重新计算。工具只读当前用户关注范围内的已入库记录，每次最多取 5 条；外部资讯内容不会成为可执行指令。当前事件键默认由 URL 生成，跨平台同事件去重还需要更多来源和人工事件归并。
+
+管理员可用 `GET /api/admin/runs` 携带 `X-Admin-Token` 查看最近 50 次同步与问答的运行 ID、状态、数量和错误摘要。问答当前不调用模型，模型 token 与费用为 0；这也意味着它只会列出证据，尚不能生成复杂综合分析。
+
+问答支持股票代码、LoL / Valorant 等别名，以及同一问题中的多个关注对象。工具轨迹还记录参数、耗时和结果数量；不会记录用户问题原文或登录凭据。完整设计和面试说明见[工程说明](docs/engineering-notes.md)。
+
+### 评估
+
+首批标注流程见 [Eval 数据说明](data/eval/README.md)。在项目根目录执行 `uv run python scripts/eval/prepare.py` 导出本地已入库的真实链接清单，人工填写 `data/eval/annotation_queue.csv` 后执行 `uv run python scripts/eval/report.py`。报告给出每个关注对象的关键词时间倒序基线和来源标记排序的 `P@5`、覆盖数、重复率及错误 URL；不足 5 个已判候选时写 N/A。当前没有已完成的人工标注，因此没有可报告的效果数字。个性化反馈改善效果须用后续实际用户偏好另评估。
+
 ### 开发前端
 
 后端在 8000 端口运行时，另一个终端进入 `web` 目录执行 `npm run dev`，访问 `http://127.0.0.1:5173/`。Vite 把 `/api` 代理到后端。修改前端后执行 `npm run build`，FastAPI 会提供新构建的页面。
@@ -50,7 +71,9 @@ RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` �
 
 已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。需先准备指向主机的域名或可配置的 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。**当前未执行公网部署**；费用、备份恢复和外部试用结果仍未验证。
 
-用户目前没有服务器或域名。本周首选 [`render.yaml`](render.yaml) 的 Render 免费预览路径，取得平台自带的 HTTPS 子域名；[部署选择与限制](docs/deployment-options.md)列明免费数据库 30 天到期、无备份和 Web 休眠等条件。部署需要用户控制的 Git 仓库与 Render 账号连接，当前尚未进行。
+用户目前没有服务器或域名。本周首选 [`render.yaml`](render.yaml) 的 Render 免费预览路径，取得平台自带的 HTTPS 子域名；[部署选择与限制](docs/deployment-options.md)列明免费数据库 30 天到期、无备份和 Web 休眠等条件。GitHub 仓库已创建，代码推送与 Render 部署尚未完成。
+
+[用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
 停止本地数据库：
 
@@ -78,3 +101,17 @@ docker compose down -v
 - React、TypeScript、Vite；Caddy 用于预备的 HTTPS 部署
 
 来源适配、用户反馈与记忆、Eval、外部部署等状态以计划和各阶段复盘为准。实现后会把真实部署地址、使用数据、评估结果和局限补进 README。
+
+## 阶段复盘与交付状态
+
+| 小项目 | 复盘 | 当前状态 |
+| --- | --- | --- |
+| 0 范围与来源门 | [复盘 0](docs/retrospectives/00-scope-eval.md) | 已完成 |
+| 1 数据与来源 | [复盘 1](docs/retrospectives/01-ingestion.md) | 实现已交付，场景验收待补 |
+| 2 推荐与记忆 | [复盘 2](docs/retrospectives/02-feedback.md) | 实现已交付，场景验收待补 |
+| 3 Web 闭环 | [复盘 3](docs/retrospectives/03-web.md) | 构建完成，实际用户和手机验收待补 |
+| 4 Agent 与 Eval | [进度复盘 4](docs/retrospectives/04-agent-eval.md) | 工具与报告脚本就绪，人工标注未完成 |
+| 5 部署与试用 | [试用步骤](docs/beta-5-minute-guide.md) | 等待账号授权与公网部署 |
+| 6 最终交付 | [工程说明](docs/engineering-notes.md) | README 已更新，最终指标和演示待补 |
+
+2026-10-02 已完成 Python Ruff 静态检查、TypeScript/Vite 构建和本地 Docker 镜像构建。尚未运行功能场景验收，不据此声称账号隔离、推荐效果或生产可靠性已通过验证。

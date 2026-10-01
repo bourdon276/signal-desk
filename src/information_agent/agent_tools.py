@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-
-from sqlalchemy import select
 
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
+from sqlalchemy import select
 
 from information_agent.db import SessionLocal
+from information_agent.domain import WATCHES
 from information_agent.models import Item, Watch
 from information_agent.ranking import ranked_items
 
@@ -37,17 +37,25 @@ class SearchItems(Tool):
             "type": "object",
             "properties": {
                 "watch_id": {"type": "string", "maxLength": 64},
+                "watch_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(WATCHES)},
+                    "minItems": 1,
+                    "maxItems": 6,
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 5},
             },
             "required": ["limit"],
             "additionalProperties": False,
         }
 
-    async def execute(self, limit: int, watch_id: str | None = None) -> list[dict]:
+    async def execute(self, limit: int, watch_id: str | None = None, watch_ids: list[str] | None = None) -> list[dict]:
         with SessionLocal() as db:
             items = ranked_items(db, self.user_id, limit=500)
             if watch_id is not None:
                 items = [item for item in items if item["watch_id"] == watch_id]
+            if watch_ids is not None:
+                items = [item for item in items if item["watch_id"] in watch_ids]
             return [
                 {
                     "id": item["id"],
@@ -119,5 +127,5 @@ def news_age_label(value: str | None) -> str:
         return "发布时间未知"
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).strftime("%Y-%m-%d")

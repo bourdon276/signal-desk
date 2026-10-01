@@ -7,9 +7,8 @@ import csv
 import json
 import sys
 import unicodedata
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 ALIASES = {
     "stock:002491": ("通鼎互联", "002491"),
@@ -32,7 +31,7 @@ def timestamp(value: str | None) -> float | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             raise ValueError("timezone required")
-        return parsed.astimezone(timezone.utc).timestamp()
+        return parsed.astimezone(UTC).timestamp()
     except ValueError as exc:
         raise ValueError(f"invalid published_at {value!r}: {exc}") from exc
 

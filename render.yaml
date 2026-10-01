@@ -6,6 +6,7 @@ services:
     runtime: docker
     plan: free
     region: singapore
+    autoDeployTrigger: off
     healthCheckPath: /ready
     envVars:
       - key: APP_ENV
