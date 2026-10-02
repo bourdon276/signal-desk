@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from datetime import datetime
 from time import perf_counter
 from urllib.parse import urlsplit, urlunsplit
@@ -21,6 +22,7 @@ from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, U
 from information_agent.personalization import matches, user_scope
 from information_agent.ranking import ranked_items
 from information_agent.security import current_user, issue_token, password_hash, password_matches
+from information_agent.sources import coverage, public_sources
 
 router = APIRouter(prefix="/api")
 
@@ -62,7 +64,8 @@ class AskInput(BaseModel):
 
 class TopicInput(BaseModel):
     name: str = Field(min_length=2, max_length=60)
-    keywords: list[str] = Field(min_length=1, max_length=5)
+    keywords: list[str] = Field(default_factory=list, max_length=5)
+    stock_code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
 
 
 class ReadingInput(BaseModel):
@@ -73,13 +76,27 @@ class ReadingInput(BaseModel):
 @router.get("/topics")
 def list_topics(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     rows = db.scalars(select(Topic).where(Topic.user_id == user.id).order_by(Topic.created_at))
-    return {"topics": [{"id": t.id, "name": t.name, "keywords": json.loads(t.keywords)} for t in rows]}
+    return {
+        "topics": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "keywords": json.loads(t.keywords),
+                "stock_code": next((k[6:] for k in json.loads(t.keywords) if re.fullmatch(r"stock:[0-9]{6}", k)), None),
+            }
+            for t in rows
+        ]
+    }
 
 
 @router.post("/topics", status_code=201)
 def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    keywords = list(dict.fromkeys(term.strip() for term in payload.keywords))
-    if any(not 2 <= len(term) <= 40 for term in keywords) or not payload.name.strip():
+    keywords = (
+        [f"stock:{payload.stock_code}"]
+        if payload.stock_code
+        else list(dict.fromkeys(term.strip() for term in payload.keywords))
+    )
+    if not keywords or any(not 2 <= len(term) <= 40 for term in keywords) or len(payload.name.strip()) < 2:
         raise HTTPException(status_code=422, detail="每个关键词需为 2–40 个字，最多 5 个")
     owned = list(db.scalars(select(Topic).where(Topic.user_id == user.id)))
     if len(owned) >= 20:
@@ -129,33 +146,18 @@ def require_admin(token: str | None) -> None:
 def catalog() -> dict:
     return {
         "watches": [{"id": key, "name": value} for key, value in WATCHES.items()],
-        "automatic_source": {"gold:london": "美联储货币政策 RSS"},
+        "automatic_source": {"gold:london": "美联储货币政策 RSS", "esports:cs2": "Valve · Steam 官方新闻 API"},
     }
 
 
 @router.get("/sources")
 def source_status(db: Session = Depends(get_db)) -> dict:
-    latest = db.scalar(
-        select(AgentRun).where(AgentRun.kind == "fed_rss_sync").order_by(AgentRun.started_at.desc()).limit(1)
-    )
-    success = db.scalar(
-        select(AgentRun)
-        .where(AgentRun.kind == "fed_rss_sync", AgentRun.status == "success")
-        .order_by(AgentRun.started_at.desc())
-        .limit(1)
-    )
-    return {
-        "sources": [
-            {
-                "id": "fed_monetary_rss",
-                "watch_id": "gold:london",
-                "label": "美联储货币政策 RSS",
-                "status": latest.status if latest else "not_run",
-                "last_success_at": success.finished_at.isoformat() if success and success.finished_at else None,
-                "last_error": latest.detail if latest and latest.status == "failure" else None,
-            }
-        ]
-    }
+    return {"sources": public_sources(db)}
+
+
+@router.get("/coverage")
+def watch_coverage(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    return {"coverage": coverage(db, user.id)}
 
 
 @router.post("/register", status_code=201)
@@ -329,7 +331,12 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
     question = payload.question.strip()
     matching = resolve_watch_ids(question)
     personal = db.scalars(select(Topic).where(Topic.user_id == user.id))
-    matching.extend(t.id for t in personal if t.name.casefold() in question.casefold())
+    matching.extend(
+        t.id
+        for t in personal
+        if t.name.casefold() in question.casefold()
+        or any(k.startswith("stock:") and k[6:] in question for k in json.loads(t.keywords))
+    )
     supported = bool(matching) or any(word in question for word in ("关注", "资讯", "消息", "新闻", "动态"))
     run = AgentRun(user_id=user.id, kind="evidence_answer", status="running", detail="")
     db.add(run)

@@ -2,17 +2,17 @@
 
 初稿日期：2026-09-30；状态更新：2026-10-01。这里的“候选”表示已找到入口，不表示已获得自动采集、再分发或商用许可。采集器开发前须再次核对条款、访问方式和授权范围。
 
-本周已接入[美联储货币政策 RSS](https://www.federalreserve.gov/feeds/press_monetary.xml)：[官方 RSS 说明](https://www.federalreserve.gov/feeds/feeds.htm)允许读者/聚合器展示链接、标题和简短摘要。适配器只访问固定 RSS，不爬文章正文；仅把内容作为伦敦金宏观候选，不推断金价。2026-10-01 本地首次成功同步 15 条。其他来源尚未自动接入。
+本周已接入[美联储货币政策 RSS](https://www.federalreserve.gov/feeds/press_monetary.xml)：[官方 RSS 说明](https://www.federalreserve.gov/feeds/feeds.htm)允许读者/聚合器展示链接、标题和简短摘要。适配器只访问固定 RSS，不爬文章正文；仅把内容作为伦敦金宏观候选，不推断金价。2026-10-01 本地首次成功同步 15 条。2026-10-02 新增 Valve Steam 官方 CS2 News API；股票正式适配器已准备但等待账号与展示权限，默认关闭。
 
 一周 MVP 的自动接入门槛与手动链接降级方式以[当前计划](../PLAN.md)为准；本表仍覆盖全部六个关注对象。
 
 | 关注对象 | 首选候选 | 补充候选 | 当前接入判断 | 降级方式 |
 | --- | --- | --- | --- | --- |
-| 通鼎互联 002491.SZ | [巨潮资讯](https://www.cninfo.com.cn/)公司公告，交易所披露 | 同花顺 iFinD、东方财富 Choice | 巨潮为官方披露入口；自动接口、频率和再展示条款待核。商业数据接口需要账号与授权 | 只展示已合法取得的公告链接；来源不可用时显示最后成功时间，不生成“今日无公告”结论 |
+| 通鼎互联 002491.SZ | [巨潮资讯](https://www.cninfo.com.cn/)公司公告，交易所披露 | 同花顺 iFinD、东方财富 Choice | 巨潮为官方披露入口；正式p_info3015接口契约已核实，适配器已准备；账号与展示授权待核，默认关闭 | 只展示已合法取得的公告链接；来源不可用时显示最后成功时间，不生成“今日无公告”结论 |
 | 辉煌科技 002296.SZ | [巨潮资讯](https://www.cninfo.com.cn/)公司公告，交易所披露 | 同上 | 同上 | 同上 |
 | 伦敦金相关资讯 | [美联储 RSS](https://www.federalreserve.gov/feeds/feeds.htm)货币政策消息、[美国劳工统计局 RSS](https://www.bls.gov/feed/) CPI 等宏观数据 | 后续补充获授权的黄金市场新闻源 | 美联储货币政策 RSS 已按官方聚合器说明接入，仅保留简短摘要和原文链接；BLS 待核。宏观消息仅作候选，不自动断言金价因果 | 仅展示事件原始链接与发布时间；无黄金专门新闻源时明确标记覆盖不足。不提供实时价格或交易建议 |
 | 英雄联盟 | [LoL Esports 新闻](https://lolesports.com/news) | [虎扑 LOL 社区](https://bbs.hupu.com/all-lol) | Riot 页面可公开浏览，自动获取/摘要权利待核；虎扑自动获取受用户协议限制，当前禁止接入 | 只保留已授权官方来源；若无获准来源，暂停此对象自动推荐，并显示缺口 |
-| CS2 | [完美世界电竞](https://www.pwesports.cn/)官方消息、[Valve 官方新闻](https://www.counter-strike.net/news/) | [虎扑 CS2 社区](https://bbs.hupu.com/csgo) | 两个官方页面存在，API/RSS、自动获取与再展示权利待核；已人工收录 Valve 原文链接，虎扑当前禁止自动接入 | 官方源未获准前暂停自动推荐；允许用户手动保存原文链接，不抓取页面正文 |
+| CS2 | [完美世界电竞](https://www.pwesports.cn/)官方消息、[Valve 官方新闻](https://www.counter-strike.net/news/) | [虎扑 CS2 社区](https://bbs.hupu.com/csgo) | Valve Steam News API已按正式文档与条款接入，小时级更新官方发布的版本/活动短摘录；不覆盖全部赛事。完美世界待核，虎扑未接入 | 官方源未获准前暂停自动推荐；允许用户手动保存原文链接，不抓取页面正文 |
 | 无畏契约 | [VALORANT Esports 新闻](https://valorantesports.com/en-GB/news)、[VALORANT 新闻](https://playvalorant.com/en-us/news/) | [虎扑无畏契约社区](https://bbs.hupu.com/803) | Riot 页面可公开浏览，自动获取/摘要权利待核；虎扑当前禁止接入 | 同英雄联盟 |
 
 ## 来源准入规则

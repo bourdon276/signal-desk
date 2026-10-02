@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     registration_code: str = ""
     cors_origins: str = "http://localhost:5173"
     sync_in_web: bool = False
+    steam_use_env_proxy: bool = False
+    cninfo_access_token: SecretStr = SecretStr("")
+    cninfo_display_allowed: bool = False
+    cninfo_daily_request_limit: int = Field(default=24, ge=1, le=100)
 
     @field_validator("database_url")
     @classmethod

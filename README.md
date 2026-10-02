@@ -2,6 +2,12 @@
 
 > MVP 开发中。2026-10-02 已部署至 Render，公网首页可访问。已收到首位朋友的体验反馈；人工 Eval、完整操作验收与第二轮体验仍待完成。
 
+## 自动来源与自己的关注
+
+新增 CS2 官方更新自动采集（Valve Steam News API），与美联储 RSS 分别每小时同步。自定义关键词持续匹配新入库消息；“管理关注 → 股票代码”保存自己的A股代码。来源详情与每个关注显示实际覆盖、上次成功同步、失败或延迟。CS2源以版本与官方活动为主，不保证覆盖战队赛事。
+
+股票正式适配器已准备，**默认关闭，真实股票自动更新仍待数据账号与展示权限**；详见[配置说明](docs/stock-api-setup.md)。LoL/无畏契约仍为历史收录。自动短摘录可能为英文，中文自动摘要尚未实现。[本阶段复盘](docs/retrospectives/07-source-expansion.md)记录实现、来源依据、问题与验收缺口。
+
 ## 首轮体验后的改版
 
 项目所有者已转述一位朋友的实际体验意见，见[用户反馈迭代复盘](docs/retrospectives/06-beta-iteration.md)。新版使用“阅讯”阅读台界面：管理关注中可添加自己的关键词主题；卡片直接显示概况；支持持久化已读/未读及“先读三条”。完整操作验收与第二轮体验仍待完成。
@@ -25,7 +31,7 @@
 
 - 已形成[来源矩阵](docs/source_matrix.md)、[用户流程](docs/user_flow.md)、[试用预算](docs/budget.md)、[长期 Eval 协议](docs/eval/protocol.md)和[固定关键词基线](scripts/eval/baseline.py)。
 - 已准备[标注模板](data/eval/annotation_template.csv)、[试用者匿名登记表](docs/beta_recruitment.md)与[来源权限跟进清单](docs/source_permissions.md)。
-- 本地已迁移数据库，手动收录 20 条经核对的股票/电竞原文链接，并从美联储货币政策 RSS 同步 15 条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。股票和电竞自动接入仍待权限确认。
+- 本地已迁移数据库，手动收录 20 条经核对的股票/电竞原文链接，并从美联储货币政策 RSS 同步 15 条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。股票和Riot自动接入仍待权限确认；CS2已新增Valve正式News API。
 - 已实现个人关注、反馈、撤销、规则排序、React 页面，以及基于 nanobot Tool 接口的受限证据检索。问答目前为不调用模型的证据列表；nanobot 模型循环尚未接入。
 - 本周先争取 1–2 位非开发者实际使用。用户表示已有 5 位愿意参与，尚待匿名核实。已生成 [35 条真实链接、70 个待人工判断位置](data/eval/README.md)，但真实人工标注数仍为 0；本周 Eval 目标是至少 30 条真实链接标注。
 - 首轮试用的服务器、模型和数据 API 总预算上限为 ¥200/月。
@@ -50,7 +56,7 @@ uv run uvicorn information_agent.main:app --reload
 
 然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择关注项，在“管理关注”添加关键词主题；阅读卡片概况，可标为已读、提交反馈，并在“最近反馈”中撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
 
-RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` 每小时运行。只访问固定的美联储 RSS URL；若请求失败，已有条目仍可阅读，`/api/sources` 会显示失败与最后成功时间。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
+多个来源同步也可通过 `uv run python -m information_agent.sync_worker` 每小时运行。仅访问固定美联储RSS与Valve正式News API；可选巨潮接口默认关闭。若请求失败，已有条目仍可阅读，`/api/sources` 会显示各来源失败、延迟与最后成功时间；`/api/coverage` 返回当前用户关注的覆盖说明。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
 
 ### 数据流与 Agent 边界
 
