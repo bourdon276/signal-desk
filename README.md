@@ -1,6 +1,8 @@
 # 个人资讯 Agent
 
-> 开发中。2026-10-01 起按[一周 MVP 计划](PLAN.md)推进。当前已具备本地可运行原型，尚未公开部署或邀请外部用户。
+> MVP 开发中。2026-10-02 已部署至 Render，公网首页可访问。人工 Eval 和外部用户试用仍待完成。
+
+**在线演示：[Signal Desk](https://signal-desk-demo.onrender.com/)** · [GitHub 源码](https://github.com/bourdon276/signal-desk)。首次使用点击“创建账号”，填写维护者单独提供的邀请码。免费实例休眠后访问可能需要等待约一分钟。
 
 把股票、伦敦金与电竞资讯放进一个可追溯的信息流，并根据用户反馈调整推荐。本周目标是 10 月 7 日前做出可访问、可演示、可如实写进简历的 MVP；14 天试用等目标见[长期路线](docs/roadmap-long-term.md)。
 
@@ -69,9 +71,9 @@ RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` �
 
 ### 公开部署准备
 
-已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。需先准备指向主机的域名或可配置的 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。**当前未执行公网部署**；费用、备份恢复和外部试用结果仍未验证。
+已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。自有主机路径需先准备域名或 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。当前实际部署使用下方 Render 路径；备份恢复和外部试用仍待完成。
 
-用户目前没有服务器或域名。本周首选 [`render.yaml`](render.yaml) 的 Render 免费预览路径，取得平台自带的 HTTPS 子域名；[部署选择与限制](docs/deployment-options.md)列明免费数据库 30 天到期、无备份和 Web 休眠等条件。代码已推送至 [GitHub 公开仓库](https://github.com/bourdon276/signal-desk)。2026-10-02 实际尝试部署时，Render 要求账号先绑定支付卡进行验证；Blueprint 与手动数据库创建均被这一步阻塞，尚未创建服务或获得公网地址。
+2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。日志显示数据库迁移成功、重跑手动导入新增 0 条（总计 20 条）、Fed RSS 新增 15 条、`/ready` 返回 200。实际部署版本为 `e1291f0`。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
 
 [用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
@@ -111,7 +113,7 @@ docker compose down -v
 | 2 推荐与记忆 | [复盘 2](docs/retrospectives/02-feedback.md) | 实现已交付，场景验收待补 |
 | 3 Web 闭环 | [复盘 3](docs/retrospectives/03-web.md) | 构建完成，实际用户和手机验收待补 |
 | 4 Agent 与 Eval | [进度复盘 4](docs/retrospectives/04-agent-eval.md) | 工具与报告脚本就绪，人工标注未完成 |
-| 5 部署与试用 | [试用步骤](docs/beta-5-minute-guide.md) | 等待账号授权与公网部署 |
+| 5 部署与试用 | [部署复盘](docs/retrospectives/05-deployment-user.md) / [试用步骤](docs/beta-5-minute-guide.md) | 公网部署成功；外部用户试用待完成 |
 | 6 最终交付 | [工程说明](docs/engineering-notes.md) | README 已更新，最终指标和演示待补 |
 
 2026-10-02 已完成 Python Ruff 静态检查、TypeScript/Vite 构建和本地 Docker 镜像构建。尚未运行功能场景验收，不据此声称账号隔离、推荐效果或生产可靠性已通过验证。
