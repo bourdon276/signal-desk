@@ -4,17 +4,19 @@
 
 ## 自动来源与自己的关注
 
-新增 CS2 官方更新自动采集（Valve Steam News API），与美联储 RSS 分别每小时同步。自定义关键词持续匹配新入库消息；“管理关注 → 股票代码”保存自己的A股代码。来源详情与每个关注显示实际覆盖、上次成功同步、失败或延迟。CS2源以版本与官方活动为主，不保证覆盖战队赛事。
+根据首轮体验意见，新增关注已改为对象订阅：A 股证券代码、CS2 战队名称。股票代码精确连接巨潮公告适配器；战队连接 PandaScore fixtures 适配器，`绿龙` 映射为 Team Spirit，关注赛程/进行状态/比分。新增适配器和私密 Token 配置说明已提交，**实际自动更新需维护者在 Render 配置 PandaScore Token；股票公告仍需 CNINFO 凭据和展示许可**。未配置来源时界面明确显示待配置。游戏官方公告降为历史内容，不再持续同步。
 
-股票正式适配器已准备，**默认关闭，真实股票自动更新仍待数据账号与展示权限**；详见[配置说明](docs/stock-api-setup.md)。LoL/无畏契约仍为历史收录。自动短摘录可能为英文，中文自动摘要尚未实现。[本阶段复盘](docs/retrospectives/07-source-expansion.md)记录实现、来源依据、问题与验收缺口。
+股票正式适配器已准备，**默认关闭，真实股票自动更新仍待数据账号与展示权限**；详见[配置说明](docs/stock-api-setup.md)。战队配置见[CS2 战队来源](docs/team-source-setup.md)。战队来源不等同于战队新闻文章。自动短摘录可能为英文，中文自动摘要尚未实现。[本阶段复盘](docs/retrospectives/08-entity-following.md)记录实现、来源依据、问题与验收缺口。
 
 ## 首轮体验后的改版
 
-项目所有者已转述一位朋友的实际体验意见，见[用户反馈迭代复盘](docs/retrospectives/06-beta-iteration.md)。新版使用“阅讯”阅读台界面：管理关注中可添加自己的关键词主题；卡片直接显示概况；支持持久化已读/未读及“先读三条”。完整操作验收与第二轮体验仍待完成。
+项目所有者已转述一位朋友的实际体验意见，见[用户反馈迭代复盘](docs/retrospectives/06-beta-iteration.md)。新版使用“阅讯”阅读台界面：管理关注中可添加自己的股票代码或 CS2 战队；卡片直接显示概况；支持持久化已读/未读及“先读三条”。本轮对象订阅实现复盘见[阶段复盘 08](docs/retrospectives/08-entity-following.md)。存量关键词主题仍兼容读取，但不再出现在新增入口。
 
-自定义关注最多20个，每个1–5个关键词，字面匹配已有库中的标题、摘要、来源与对象标识。**它不会自动接入新的股票/战队或联网搜索**；没有匹配时明确显示来源缺口。当前18条手动样本附经原文核对的短概况、15条RSS使用来源摘要；CS2两条仍仅有标题概况，正文细节尚未提取。概况与人工Eval标签是不同的数据，不能据此增加人工标注计数。
+每个账号最多20个自定义关注。股票按六位证券代码精确匹配；战队按规范化实体 ID 精确匹配。通用关键词只为旧记录保留兼容，不再作为新增关注入口。战队来源仅覆盖赛程和赛果；战队官方新闻、采访和转会仍是来源缺口。当前18条手动样本附经原文核对的短概况、15条RSS使用来源摘要；概况与人工Eval标签是不同的数据，不能据此增加人工标注计数。
 
-新版追加 `topics` 和 `readings` 两张表，启动时执行 Alembic 升级，保留已有用户、关注与反馈。个人关键词和阅读记录不进入Git，也不在运行日志中输出。
+新版追加 `topics` 和 `readings` 两张表，启动时执行 Alembic 升级，保留已有用户、关注与反馈。个人关注和阅读记录不进入Git，也不在运行日志中输出。
+
+PandaScore 官方把 CS2 赛程与结果列入 Fixtures 计划，免费档标注 1000 次请求/小时且注册无需绑卡；但其现行服务条款对客户身份和网站展示有约束。阅讯是公开演示，必须先由账号持有人确认条款适用，再配置 Token。步骤见[战队来源配置](docs/team-source-setup.md)。股票接口配置见[巨潮配置说明](docs/stock-api-setup.md)。
 
 **在线演示：[Signal Desk](https://signal-desk-demo.onrender.com/)** · [GitHub 源码](https://github.com/bourdon276/signal-desk)。首次使用点击“创建账号”，填写维护者单独提供的邀请码。免费实例休眠后访问可能需要等待约一分钟。
 
@@ -24,14 +26,14 @@
 
 - 股票：通鼎互联（002491.SZ）、辉煌科技（002296.SZ）
 - 黄金：伦敦金相关资讯；首版不提供实时行情或交易建议
-- 电竞：英雄联盟、CS2、无畏契约
+- 电竞：当前优先支持 CS2 战队对象（绿龙 / Team Spirit）；LoL、无畏契约保留历史记录
 - 每周 AI 前沿简报与私有阅读源列入后续阶段
 
 ## 当前进度
 
 - 已形成[来源矩阵](docs/source_matrix.md)、[用户流程](docs/user_flow.md)、[试用预算](docs/budget.md)、[长期 Eval 协议](docs/eval/protocol.md)和[固定关键词基线](scripts/eval/baseline.py)。
 - 已准备[标注模板](data/eval/annotation_template.csv)、[试用者匿名登记表](docs/beta_recruitment.md)与[来源权限跟进清单](docs/source_permissions.md)。
-- 本地已迁移数据库，手动收录20条经核对的股票/电竞原文链接、美联储RSS同步15条，2026-10-02新增30条Valve官方新闻。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。股票和Riot自动接入仍待权限确认；CS2已新增Valve正式News API。
+- 本地已迁移数据库，手动收录20条经核对的股票/电竞原文链接、美联储RSS同步15条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。PandaScore fixtures 与巨潮适配器代码已准备；两者的私密凭据尚未配置，真实自动入库待验收。
 - 已实现个人关注、反馈、撤销、规则排序、React 页面，以及基于 nanobot Tool 接口的受限证据检索。问答目前为不调用模型的证据列表；nanobot 模型循环尚未接入。
 - 本周先争取 1–2 位非开发者实际使用。用户表示已有 5 位愿意参与，尚待匿名核实。已生成 [35 条真实链接、70 个待人工判断位置](data/eval/README.md)，但真实人工标注数仍为 0；本周 Eval 目标是至少 30 条真实链接标注。
 - 首轮试用的服务器、模型和数据 API 总预算上限为 ¥200/月。
@@ -54,16 +56,15 @@ cd web && npm ci && npm run build && cd ..
 uv run uvicorn information_agent.main:app --reload
 ```
 
-然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择关注项，在“管理关注”添加关键词主题；阅读卡片概况，可标为已读、提交反馈，并在“最近反馈”中撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
+然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择已有关注，或在“管理关注”添加 A 股代码 / CS2 战队对象；阅读卡片概况，可标为已读、提交反馈，并在“最近反馈”中撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
 
-多个来源同步也可通过 `uv run python -m information_agent.sync_worker` 每小时运行。仅访问固定美联储RSS与Valve正式News API；可选巨潮接口默认关闭。若请求失败，已有条目仍可阅读，`/api/sources` 会显示各来源失败、延迟与最后成功时间；`/api/coverage` 返回当前用户关注的覆盖说明。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
+多个来源同步也可通过 `uv run python -m information_agent.sync_worker` 每小时运行：美联储 RSS、可选的 PandaScore CS2 赛程与结果、可选巨潮公告。PandaScore Token 未配置时不请求 API；CNINFO 需 Token 与许可开关同时启用。Valve News 不再持续同步。若请求失败，已有条目仍可阅读，`/api/sources` 会显示各来源失败、延迟或未配置状态；`/api/coverage` 返回当前用户关注的覆盖说明。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
 
 ### 数据流与 Agent 边界
 
 ```text
-美联储 RSS / Valve News API ─→ 来源适配器 ─┐
-巨潮公告 API（默认关闭）──────────────────┼→ items（PostgreSQL）→ 个人关注与反馈排序 → React 信息流
-人工核对原文链接 ─────────────────────────┘                                    │
+美联储 RSS / PandaScore fixtures / CNINFO（需配置）─→ 来源适配器 ─┐
+人工核对原文链接 ──────────────────────────────────────────────┴→ items（PostgreSQL）→ 个人对象关注与反馈排序 → React 信息流
                                        search_items / get_evidence ←┘
                                                   ↓
                                       带原文链接的证据回答
@@ -87,7 +88,9 @@ uv run uvicorn information_agent.main:app --reload
 
 已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。自有主机路径需先准备域名或 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。当前实际部署使用下方 Render 路径；备份恢复与完整试用验收仍待完成。
 
-2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。日志显示数据库迁移成功、重跑手动导入新增 0 条（总计 20 条）、Fed RSS 新增 15 条、`/ready` 返回 200。首次部署版本为 `e1291f0`；14:42 将用户反馈改版 `a19df2a` 部署为 Live，云端追加迁移成功，刷新后已看到新界面与卡片概况。16:16 将 `75ca979` 部署成功，云端Valve自动源新增30条，股票源保持未配置，CS2覆盖说明与自动卡片已显示。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
+2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。此前版本的 Fed RSS、Steam News 与 `/ready` 均曾实际部署观察成功；旧版本股票源保持未配置。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
+
+2026-10-02 对象关注改版尚待推送部署。部署后还需在 Render 私密配置 `PANDASCORE_TOKEN` 才会出现自动 CS2 战队赛程；CNINFO 股票自动公告继续受单独授权约束。
 
 [用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
@@ -114,6 +117,7 @@ docker compose down -v
 - FastAPI、Pydantic Settings
 - SQLAlchemy、Alembic、PostgreSQL（Docker Compose 本地开发）
 - httpx、feedparser
+- PandaScore Fixtures API：可选 Token，CS2 赛程与结果
 - React、TypeScript、Vite；Caddy 用于预备的 HTTPS 部署
 
 来源适配、用户反馈与记忆、Eval、外部部署等状态以计划和各阶段复盘为准。实现后会把真实部署地址、使用数据、评估结果和局限补进 README。

@@ -72,6 +72,9 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
         weight = sum(watch_weight[target] for target in matched) / len(matched)
         score = round(recency + weight * 15 + (10 if item.id in liked else 0), 2)
         reason = "按发布时间排序"
+        if item.source_name == "Valve · Steam":
+            score -= 40
+            reason = "游戏官方公告已下调优先级"
         if weight < 0:
             reason = "该主题收到过没兴趣反馈，排序已下调"
         elif weight > 0:

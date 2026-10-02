@@ -7,6 +7,8 @@ from datetime import UTC, timedelta
 from sqlalchemy import select
 
 from information_agent.ingest_cninfo import PREFIX, configured
+from information_agent.ingest_pandascore import KIND as PANDASCORE_KIND
+from information_agent.ingest_pandascore import configured as pandascore_configured
 from information_agent.models import AgentRun, Item, now_utc
 from information_agent.personalization import candidate_filter, matches, user_scope
 
@@ -20,12 +22,20 @@ SOURCE_SPECS = [
         "description": "货币政策 RSS；不包含实时金价。",
     },
     {
-        "id": "steam_cs2",
-        "kind": "steam_cs2_sync",
+        "id": "cs2_team_fixtures",
+        "kind": PANDASCORE_KIND,
         "watch_id": "esports:cs2",
-        "label": "CS2 官方更新",
-        "automatic": True,
-        "description": "Valve · Steam 新闻 API；版本与官方活动，不覆盖全部战队赛事。",
+        "label": "CS2 战队赛程与结果",
+        "automatic": pandascore_configured(),
+        "description": "PandaScore CS2 fixtures API；覆盖战队赛程、状态与公开比分，不包括战队公告和完整赛事新闻。",
+    },
+    {
+        "id": "steam_cs2_archive",
+        "kind": None,
+        "watch_id": "esports:cs2",
+        "label": "CS2 游戏公告（低优先级）",
+        "automatic": False,
+        "description": "仅保留已有的 Valve 游戏版本/活动收录；不再作为战队资讯来源持续采集。",
     },
     {
         "id": "stock_announcements",
@@ -116,9 +126,25 @@ def coverage(db, user_id):
                 if auto
                 else "已保存股票代码；自动公告需配置数据服务账号与展示许可。"
             )
-        elif watch_id in {"gold:london", "esports:cs2"}:
+        elif watch_id == "gold:london":
             spec = next(s for s in SOURCE_SPECS if s["watch_id"] == watch_id)
             auto, source, note = True, state(db, spec["kind"], True), spec["description"]
+        elif watch_id == "esports:cs2":
+            auto = pandascore_configured()
+            source = state(db, PANDASCORE_KIND, auto)
+            note = (
+                "请添加具体 CS2 战队；配置 PandaScore Token 后才会同步该战队赛程与赛果。"
+                if not auto
+                else "CS2 通用主题不代表已关注具体战队；请添加战队名称以接收其赛程与赛果。"
+            )
+        elif topic and any(term.startswith("team:cs2:") for term in terms):
+            auto = pandascore_configured()
+            source = state(db, PANDASCORE_KIND, auto)
+            note = (
+                "已保存 CS2 战队关注；等待 PandaScore 私密 API Token。配置后同步赛程、比分，不等同于战队新闻。"
+                if not auto
+                else "战队赛程、进行状态和比分由 PandaScore fixtures API 提供；不覆盖战队公告和完整赛事新闻。"
+            )
         else:
             auto = automatic_found
             source = {"status": "library_filter", "last_success_at": None, "last_attempt_at": None, "last_error": None}

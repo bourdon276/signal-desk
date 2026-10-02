@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     cninfo_access_token: SecretStr = SecretStr("")
     cninfo_display_allowed: bool = False
     cninfo_daily_request_limit: int = Field(default=24, ge=1, le=100)
+    pandascore_token: SecretStr = SecretStr("")
 
     @field_validator("database_url")
     @classmethod

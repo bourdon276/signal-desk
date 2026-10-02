@@ -14,7 +14,9 @@ MAX_BYTES = 2_000_000
 
 def download(client: httpx.Client, url: str, method: str = "GET", **kwargs) -> bytes:
     content = bytearray()
-    with client.stream(method, url, headers={"User-Agent": "SignalDesk/0.2 news reader"}, **kwargs) as response:
+    headers = {"User-Agent": "SignalDesk/0.2 news reader"}
+    headers.update(kwargs.pop("headers", {}))
+    with client.stream(method, url, headers=headers, **kwargs) as response:
         response.raise_for_status()
         for chunk in response.iter_bytes():
             if len(content) + len(chunk) > MAX_BYTES:

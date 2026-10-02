@@ -18,11 +18,13 @@ from information_agent.agent_tools import news_age_label, scoped_registry
 from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
+from information_agent.entities import canonical_team_name, is_team_watch_id, team_watch_id
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
 from information_agent.personalization import matches, user_scope
 from information_agent.ranking import ranked_items
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
+from information_agent.sync_worker import request_sync
 
 router = APIRouter(prefix="/api")
 
@@ -63,9 +65,10 @@ class AskInput(BaseModel):
 
 
 class TopicInput(BaseModel):
-    name: str = Field(min_length=2, max_length=60)
+    name: str = Field(default="", max_length=60)
     keywords: list[str] = Field(default_factory=list, max_length=5)
     stock_code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
+    team_name: str | None = Field(default=None, min_length=2, max_length=60)
 
 
 class ReadingInput(BaseModel):
@@ -83,6 +86,8 @@ def list_topics(user: User = Depends(current_user), db: Session = Depends(get_db
                 "name": t.name,
                 "keywords": json.loads(t.keywords),
                 "stock_code": next((k[6:] for k in json.loads(t.keywords) if re.fullmatch(r"stock:[0-9]{6}", k)), None),
+                "team_name": t.name if any(is_team_watch_id(k) for k in json.loads(t.keywords)) else None,
+                "team_watch_id": next((k for k in json.loads(t.keywords) if is_team_watch_id(k)), None),
             }
             for t in rows
         ]
@@ -91,24 +96,48 @@ def list_topics(user: User = Depends(current_user), db: Session = Depends(get_db
 
 @router.post("/topics", status_code=201)
 def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    keywords = (
-        [f"stock:{payload.stock_code}"]
-        if payload.stock_code
-        else list(dict.fromkeys(term.strip() for term in payload.keywords))
-    )
-    if not keywords or any(not 2 <= len(term) <= 40 for term in keywords) or len(payload.name.strip()) < 2:
-        raise HTTPException(status_code=422, detail="每个关键词需为 2–40 个字，最多 5 个")
+    if payload.stock_code and payload.team_name:
+        raise HTTPException(status_code=422, detail="一次只能创建一种对象关注")
+    if payload.stock_code:
+        name = payload.name.strip() or f"股票 {payload.stock_code}"
+        keywords = [f"stock:{payload.stock_code}"]
+    elif payload.team_name:
+        name = payload.name.strip() or payload.team_name.strip()
+        keywords = [team_watch_id(payload.team_name)]
+    else:
+        name = payload.name.strip()
+        keywords = list(dict.fromkeys(term.strip() for term in payload.keywords))
+    if (
+        len(name) < 2
+        or not keywords
+        or any(not 2 <= len(term) <= 64 for term in keywords)
+        or (not payload.stock_code and not payload.team_name and any(len(term) > 40 for term in keywords))
+    ):
+        raise HTTPException(status_code=422, detail="请输入有效的股票代码或战队名称")
     owned = list(db.scalars(select(Topic).where(Topic.user_id == user.id)))
     if len(owned) >= 20:
         raise HTTPException(status_code=422, detail="最多添加 20 个自定义关注")
-    if any(t.name == payload.name.strip() for t in owned):
+    if any(t.name == name or set(json.loads(t.keywords)).intersection(keywords) for t in owned):
         raise HTTPException(status_code=409, detail="该关注名称已存在")
-    topic = Topic(user_id=user.id, name=payload.name.strip(), keywords=json.dumps(keywords, ensure_ascii=False))
+    topic = Topic(user_id=user.id, name=name, keywords=json.dumps(keywords, ensure_ascii=False))
     db.add(topic)
     db.flush()
     db.add(Watch(user_id=user.id, watch_id=topic.id))
     db.commit()
-    return {"id": topic.id, "name": topic.name, "keywords": keywords}
+    sync_queued = False
+    if settings.sync_in_web and payload.stock_code:
+        sync_queued = request_sync("stock_announcements")
+    elif settings.sync_in_web and payload.team_name:
+        sync_queued = request_sync("cs2_team_matches")
+    return {
+        "id": topic.id,
+        "name": topic.name,
+        "keywords": keywords,
+        "team_name": canonical_team_name(payload.team_name) if payload.team_name else None,
+        "team_watch_id": keywords[0] if payload.team_name else None,
+        "stock_code": payload.stock_code,
+        "sync_queued": sync_queued,
+    }
 
 
 @router.put("/reading")
@@ -146,7 +175,7 @@ def require_admin(token: str | None) -> None:
 def catalog() -> dict:
     return {
         "watches": [{"id": key, "name": value} for key, value in WATCHES.items()],
-        "automatic_source": {"gold:london": "美联储货币政策 RSS", "esports:cs2": "Valve · Steam 官方新闻 API"},
+        "automatic_source": {"gold:london": "美联储货币政策 RSS", "team:cs2": "PandaScore CS2 赛程与结果"},
     }
 
 

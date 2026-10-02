@@ -5,6 +5,7 @@ import re
 
 from sqlalchemy import or_, select
 
+from information_agent.entities import is_team_watch_id
 from information_agent.models import Item, Topic, Watch
 
 
@@ -19,7 +20,9 @@ def matches(item, enabled, topics):
     text = f"{item.title} {item.summary} {item.source_name} {item.watch_id}".casefold()
     for topic in topics:
         if any(
-            item.watch_id == keyword if re.fullmatch(r"stock:[0-9]{6}", keyword) else keyword.casefold() in text
+            item.watch_id == keyword
+            if re.fullmatch(r"stock:[0-9]{6}", keyword) or is_team_watch_id(keyword)
+            else keyword.casefold() in text
             for keyword in json.loads(topic.keywords)
         ):
             result.append(topic.id)
@@ -30,7 +33,7 @@ def candidate_filter(enabled, topics):
     clauses = [Item.watch_id.in_(enabled)]
     for topic in topics:
         for keyword in json.loads(topic.keywords):
-            if re.fullmatch(r"stock:[0-9]{6}", keyword):
+            if re.fullmatch(r"stock:[0-9]{6}", keyword) or is_team_watch_id(keyword):
                 clauses.append(Item.watch_id == keyword)
                 continue
             pattern = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
