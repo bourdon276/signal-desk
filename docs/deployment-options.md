@@ -23,4 +23,8 @@
 
 代码已推送至 bourdon276/signal-desk 的 main 分支。用户已完成 GitHub CLI 授权及 Render 注册。Render 的 Blueprint 页面弹出 Payment Information Required；尝试手动创建 Postgres 也要求 Add credit card to verify your identity。页面说明会临时预授权 $1，不收费。银行卡信息须由用户在 Render 页面自行填写；当前没有服务、数据库或公网地址，未产生已确认的服务费用。
 
+用户随后完成绑卡，并自行创建免费 Postgres `bourdon`（Oregon，PostgreSQL 18，控制台显示 2026-11-01 到期）。为复用该实例，新增 [`render-existing.yaml`](../render-existing.yaml)：仅创建 Oregon 的免费 Web 服务，通过 `fromDatabase` 引用现有数据库。Render 的[官方 Blueprint 文档](https://render.com/docs/blueprint-spec)允许引用同工作区已存在的资源。标准 `render.yaml` 仍用于没有现有数据库的新部署，两种方案择一。
+
+本账号部署页面的 Blueprint Path 已选 `render-existing.yaml`，计划中只出现 `signal-desk-demo` Web 服务；当前等待用户填写至少 10 位私密 `REGISTRATION_CODE` 并提交。不要将邀请码写入 Git。部署成功后查看服务日志：应完成 Alembic 迁移、手动链接导入和 Uvicorn 启动；用控制台实际给出的 URL 打开应用，再记录来源状态和试用结果。
+
 不应把 `compose.production.yaml` 与 `render.yaml` 同时用在同一个 Render 服务上。前者是自有主机 + Caddy 的预备方案，后者是无服务器/域名时的一周预览方案。
