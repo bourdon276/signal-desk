@@ -31,7 +31,7 @@
 
 - 已形成[来源矩阵](docs/source_matrix.md)、[用户流程](docs/user_flow.md)、[试用预算](docs/budget.md)、[长期 Eval 协议](docs/eval/protocol.md)和[固定关键词基线](scripts/eval/baseline.py)。
 - 已准备[标注模板](data/eval/annotation_template.csv)、[试用者匿名登记表](docs/beta_recruitment.md)与[来源权限跟进清单](docs/source_permissions.md)。
-- 本地已迁移数据库，手动收录 20 条经核对的股票/电竞原文链接，并从美联储货币政策 RSS 同步 15 条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。股票和Riot自动接入仍待权限确认；CS2已新增Valve正式News API。
+- 本地已迁移数据库，手动收录20条经核对的股票/电竞原文链接、美联储RSS同步15条，2026-10-02新增30条Valve官方新闻。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。股票和Riot自动接入仍待权限确认；CS2已新增Valve正式News API。
 - 已实现个人关注、反馈、撤销、规则排序、React 页面，以及基于 nanobot Tool 接口的受限证据检索。问答目前为不调用模型的证据列表；nanobot 模型循环尚未接入。
 - 本周先争取 1–2 位非开发者实际使用。用户表示已有 5 位愿意参与，尚待匿名核实。已生成 [35 条真实链接、70 个待人工判断位置](data/eval/README.md)，但真实人工标注数仍为 0；本周 Eval 目标是至少 30 条真实链接标注。
 - 首轮试用的服务器、模型和数据 API 总预算上限为 ¥200/月。
@@ -61,9 +61,9 @@ uv run uvicorn information_agent.main:app --reload
 ### 数据流与 Agent 边界
 
 ```text
-美联储 RSS ──→ 固定来源适配器 ─┐
-                                ├→ items（PostgreSQL）→ 按用户关注与反馈排序 → React 信息流
-人工核对原文链接 ────────────────┘                                    │
+美联储 RSS / Valve News API ─→ 来源适配器 ─┐
+巨潮公告 API（默认关闭）──────────────────┼→ items（PostgreSQL）→ 个人关注与反馈排序 → React 信息流
+人工核对原文链接 ─────────────────────────┘                                    │
                                        search_items / get_evidence ←┘
                                                   ↓
                                       带原文链接的证据回答
@@ -87,7 +87,7 @@ uv run uvicorn information_agent.main:app --reload
 
 已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。自有主机路径需先准备域名或 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。当前实际部署使用下方 Render 路径；备份恢复与完整试用验收仍待完成。
 
-2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。日志显示数据库迁移成功、重跑手动导入新增 0 条（总计 20 条）、Fed RSS 新增 15 条、`/ready` 返回 200。首次部署版本为 `e1291f0`；14:42 将用户反馈改版 `a19df2a` 部署为 Live，云端追加迁移成功，刷新后已看到新界面与卡片概况。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
+2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。日志显示数据库迁移成功、重跑手动导入新增 0 条（总计 20 条）、Fed RSS 新增 15 条、`/ready` 返回 200。首次部署版本为 `e1291f0`；14:42 将用户反馈改版 `a19df2a` 部署为 Live，云端追加迁移成功，刷新后已看到新界面与卡片概况。16:16 将 `75ca979` 部署成功，云端Valve自动源新增30条，股票源保持未配置，CS2覆盖说明与自动卡片已显示。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
 
 [用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
