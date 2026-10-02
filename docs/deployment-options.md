@@ -19,4 +19,8 @@
 3. 等待数据库与 Web 服务创建；打开分配的 HTTPS 地址，确认 `/ready` 和页面可访问，再让 1–2 位试用者实际操作。
 4. 检查来源状态、注册门槛、数据保留、费用、实际访问速度；把实际结果写进 README 和部署复盘。
 
+## 2026-10-02 实际进度
+
+代码已推送至 bourdon276/signal-desk 的 main 分支。用户已完成 GitHub CLI 授权及 Render 注册。Render 的 Blueprint 页面弹出 Payment Information Required；尝试手动创建 Postgres 也要求 Add credit card to verify your identity。页面说明会临时预授权 $1，不收费。银行卡信息须由用户在 Render 页面自行填写；当前没有服务、数据库或公网地址，未产生已确认的服务费用。
+
 不应把 `compose.production.yaml` 与 `render.yaml` 同时用在同一个 Render 服务上。前者是自有主机 + Caddy 的预备方案，后者是无服务器/域名时的一周预览方案。

@@ -71,7 +71,7 @@ RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` �
 
 已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。需先准备指向主机的域名或可配置的 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。**当前未执行公网部署**；费用、备份恢复和外部试用结果仍未验证。
 
-用户目前没有服务器或域名。本周首选 [`render.yaml`](render.yaml) 的 Render 免费预览路径，取得平台自带的 HTTPS 子域名；[部署选择与限制](docs/deployment-options.md)列明免费数据库 30 天到期、无备份和 Web 休眠等条件。GitHub 仓库已创建，代码推送与 Render 部署尚未完成。
+用户目前没有服务器或域名。本周首选 [`render.yaml`](render.yaml) 的 Render 免费预览路径，取得平台自带的 HTTPS 子域名；[部署选择与限制](docs/deployment-options.md)列明免费数据库 30 天到期、无备份和 Web 休眠等条件。代码已推送至 [GitHub 公开仓库](https://github.com/bourdon276/signal-desk)。2026-10-02 实际尝试部署时，Render 要求账号先绑定支付卡进行验证；Blueprint 与手动数据库创建均被这一步阻塞，尚未创建服务或获得公网地址。
 
 [用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
