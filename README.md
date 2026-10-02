@@ -1,6 +1,6 @@
 # 个人资讯 Agent
 
-> MVP 开发中。2026-10-02 已部署至 Render，公网首页可访问。人工 Eval 和外部用户试用仍待完成。
+> MVP 开发中。2026-10-02 已部署至 Render，公网首页可访问。已收到首位朋友的体验反馈；人工 Eval、完整操作验收与第二轮体验仍待完成。
 
 ## 首轮体验后的改版
 
@@ -48,9 +48,9 @@ cd web && npm ci && npm run build && cd ..
 uv run uvicorn information_agent.main:app --reload
 ```
 
-然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择关注项，点击卡片反馈并在右侧撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
+然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择关注项，在“管理关注”添加关键词主题；阅读卡片概况，可标为已读、提交反馈，并在“最近反馈”中撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
 
-RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` 每小时运行。只访问固定的美联储 RSS URL；若请求失败，已有条目仍可阅读，`/api/sources` 会显示失败与最后成功时间。手动收录只保存标题、时间和原文 URL，不抓第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
+RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` 每小时运行。只访问固定的美联储 RSS URL；若请求失败，已有条目仍可阅读，`/api/sources` 会显示失败与最后成功时间。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
 
 ### 数据流与 Agent 边界
 
@@ -79,9 +79,9 @@ RSS 同步目前也可通过 `uv run python -m information_agent.sync_worker` �
 
 ### 公开部署准备
 
-已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。自有主机路径需先准备域名或 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。当前实际部署使用下方 Render 路径；备份恢复和外部试用仍待完成。
+已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。自有主机路径需先准备域名或 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。当前实际部署使用下方 Render 路径；备份恢复与完整试用验收仍待完成。
 
-2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。日志显示数据库迁移成功、重跑手动导入新增 0 条（总计 20 条）、Fed RSS 新增 15 条、`/ready` 返回 200。实际部署版本为 `e1291f0`。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
+2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。日志显示数据库迁移成功、重跑手动导入新增 0 条（总计 20 条）、Fed RSS 新增 15 条、`/ready` 返回 200。首次部署版本为 `e1291f0`；14:42 将用户反馈改版 `a19df2a` 部署为 Live，云端追加迁移成功，刷新后已看到新界面与卡片概况。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
 
 [用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
@@ -121,7 +121,7 @@ docker compose down -v
 | 2 推荐与记忆 | [复盘 2](docs/retrospectives/02-feedback.md) | 实现已交付，场景验收待补 |
 | 3 Web 闭环 | [复盘 3](docs/retrospectives/03-web.md) | 构建完成，实际用户和手机验收待补 |
 | 4 Agent 与 Eval | [进度复盘 4](docs/retrospectives/04-agent-eval.md) | 工具与报告脚本就绪，人工标注未完成 |
-| 5 部署与试用 | [部署复盘](docs/retrospectives/05-deployment-user.md) / [试用步骤](docs/beta-5-minute-guide.md) | 公网部署成功；外部用户试用待完成 |
+| 5 部署与试用 | [部署复盘](docs/retrospectives/05-deployment-user.md) / [试用步骤](docs/beta-5-minute-guide.md) | 公网部署成功；已有首轮朋友反馈，完整验收待完成 |
 | 6 最终交付 | [工程说明](docs/engineering-notes.md) | README 已更新，最终指标和演示待补 |
 
 2026-10-02 已完成 Python Ruff 静态检查、TypeScript/Vite 构建和本地 Docker 镜像构建。尚未运行功能场景验收，不据此声称账号隔离、推荐效果或生产可靠性已通过验证。
