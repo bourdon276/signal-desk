@@ -1,0 +1,25 @@
+# Use the user's existing Free Postgres "bourdon" in the same Render workspace.
+# Choose this Blueprint path explicitly; it creates only the web service.
+services:
+  - type: web
+    name: signal-desk-demo
+    runtime: docker
+    plan: free
+    region: oregon
+    autoDeployTrigger: off
+    healthCheckPath: /ready
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bourdon
+          property: connectionString
+      - key: APP_SECRET
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: REGISTRATION_CODE
+        sync: false
+      - key: SYNC_IN_WEB
+        value: "true"
