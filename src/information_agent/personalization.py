@@ -1,0 +1,43 @@
+"""Shared access policy for feed, feedback and evidence tools."""
+
+import json
+
+from sqlalchemy import or_, select
+
+from information_agent.models import Item, Topic, Watch
+
+
+def user_scope(db, user_id):
+    enabled = set(db.scalars(select(Watch.watch_id).where(Watch.user_id == user_id)))
+    topics = list(db.scalars(select(Topic).where(Topic.user_id == user_id, Topic.id.in_(enabled))))
+    return enabled, topics
+
+
+def matches(item, enabled, topics):
+    result = [item.watch_id] if item.watch_id in enabled else []
+    text = f"{item.title} {item.summary} {item.source_name} {item.watch_id}".casefold()
+    for topic in topics:
+        if any(keyword.casefold() in text for keyword in json.loads(topic.keywords)):
+            result.append(topic.id)
+    return result
+
+
+def candidate_filter(enabled, topics):
+    clauses = [Item.watch_id.in_(enabled)]
+    for topic in topics:
+        for keyword in json.loads(topic.keywords):
+            pattern = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            clauses.extend(
+                column.ilike(pattern, escape="\\")
+                for column in (Item.title, Item.summary, Item.source_name, Item.watch_id)
+            )
+    return or_(*clauses)
+
+
+def overview(item):
+    if item.summary:
+        return {"text": item.summary[:500], "kind": "来源摘要" if item.ingestion_mode == "rss" else "原文概况"}
+    return {
+        "text": f"{item.source_name}发布了关于“{item.title}”的消息。当前只收录标题和链接，具体数字与细节尚未提取。",
+        "kind": "标题概况",
+    }

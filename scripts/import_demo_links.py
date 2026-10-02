@@ -21,14 +21,17 @@ def main() -> None:
         for row in records:
             if not valid_watch(row["watch_id"]):
                 raise ValueError(f"invalid watch_id: {row['watch_id']}")
-            if db.scalar(select(Item.id).where(Item.canonical_url == row["url"])):
+            existing = db.scalar(select(Item).where(Item.canonical_url == row["url"]))
+            if existing:
+                if row.get("summary") and not existing.summary:
+                    existing.summary = row["summary"]
                 continue
             db.add(
                 Item(
                     watch_id=row["watch_id"],
                     canonical_url=row["url"],
                     title=row["title"],
-                    summary="",
+                    summary=row.get("summary", ""),
                     source_name=row["source_name"],
                     source_type=row["source_type"],
                     ingestion_mode="manual_link",

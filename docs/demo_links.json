@@ -1,22 +1,198 @@
 [
-  {"watch_id":"stock:002491","url":"https://static.cninfo.com.cn/finalpage/2026-09-28/1225582336.PDF","title":"通鼎互联：第六届董事会第二十一次会议决议公告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-09-28T00:00:00+08:00"},
-  {"watch_id":"stock:002491","url":"https://static.cninfo.com.cn/finalpage/2026-07-15/1225424659.PDF","title":"通鼎互联：关于控股股东权益变动触及 1% 整数倍的提示性公告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-07-15T00:00:00+08:00"},
-  {"watch_id":"stock:002491","url":"https://static.cninfo.com.cn/finalpage/2026-06-18/1225376579.PDF","title":"通鼎互联：股票交易异常波动公告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-06-18T00:00:00+08:00"},
-  {"watch_id":"stock:002491","url":"https://static.cninfo.com.cn/finalpage/2026-08-20/1225482133.PDF","title":"通鼎互联：2026 年半年度报告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-08-20T00:00:00+08:00"},
-  {"watch_id":"stock:002491","url":"https://static.cninfo.com.cn/finalpage/2026-04-30/1225257962.PDF","title":"通鼎互联：2026 年第一季度报告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-04-30T00:00:00+08:00"},
-  {"watch_id":"stock:002491","url":"https://static.cninfo.com.cn/finalpage/2026-05-15/1225306031.PDF","title":"通鼎互联：关于举行 2025 年度网上业绩说明会的公告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-05-15T00:00:00+08:00"},
-  {"watch_id":"stock:002296","url":"https://static.cninfo.com.cn/finalpage/2026-09-11/1225557979.PDF","title":"辉煌科技：关于部分董事、高级管理人员增持公司股份计划的公告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-09-11T00:00:00+08:00"},
-  {"watch_id":"stock:002296","url":"https://static.cninfo.com.cn/finalpage/2026-07-31/1225448495.PDF","title":"辉煌科技：2026 年半年度报告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-07-31T00:00:00+08:00"},
-  {"watch_id":"stock:002296","url":"https://static.cninfo.com.cn/finalpage/2026-04-28/1225208952.PDF","title":"辉煌科技：2026 年第一季度报告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-04-28T00:00:00+08:00"},
-  {"watch_id":"stock:002296","url":"https://static.cninfo.com.cn/finalpage/2026-07-31/1225448498.PDF","title":"辉煌科技：关于 2026 年半年度计提信用及资产减值准备的公告","source_name":"巨潮资讯","source_type":"official","published_at":"2026-07-31T00:00:00+08:00"},
-  {"watch_id":"esports:lol","url":"https://lolesports.com/en-US/news/worlds-anthem-presented-by-true-damage","title":"Worlds Anthem Presented by True Damage","source_name":"LoL Esports","source_type":"official","published_at":"2026-09-29T00:00:00Z"},
-  {"watch_id":"esports:lol","url":"https://lolesports.com/en-US/news/worlds-2026-venue-event-policies","title":"WORLDS 2026 VENUE EVENT POLICIES","source_name":"LoL Esports","source_type":"official","published_at":"2026-09-22T00:00:00Z"},
-  {"watch_id":"esports:lol","url":"https://lolesports.com/en-US/news/red-bull-league-of-its-own-2026-comes-to-spain","title":"Red Bull League of Its Own 2026 comes to Spain","source_name":"LoL Esports","source_type":"official","published_at":"2026-09-22T00:00:00Z"},
-  {"watch_id":"esports:lol","url":"https://lolesports.com/en-US/lolesports/news/fans-guide-to-the-lcs-championship","title":"Fan's Guide to the LCS Championship","source_name":"LoL Esports","source_type":"official","published_at":"2026-09-16T00:00:00Z"},
-  {"watch_id":"esports:cs2","url":"https://www.counter-strike.net/newsentry/685257114654867461?l=english","title":"Playoffs at the Cathedral of Counter-Strike","source_name":"Counter-Strike","source_type":"official","published_at":"2026-06-17T00:00:00Z"},
-  {"watch_id":"esports:cs2","url":"https://www.counter-strike.net/newsentry/672869045073084948","title":"IEM Cologne 2026","source_name":"Counter-Strike","source_type":"official","published_at":"2026-05-22T00:00:00Z"},
-  {"watch_id":"esports:valorant","url":"https://valorantesports.com/en-US/news/champions-shanghai-everything-you-need-to-know","title":"Champions Shanghai: Everything You Need To Know","source_name":"VALORANT Esports","source_type":"official","published_at":"2026-09-11T00:00:00Z"},
-  {"watch_id":"esports:valorant","url":"https://valorantesports.com/en-GB/news/champions-shanghai-opening-day","title":"Champions Shanghai Opening Day","source_name":"VALORANT Esports","source_type":"official","published_at":"2026-09-16T00:00:00Z"},
-  {"watch_id":"esports:valorant","url":"https://valorantesports.com/en-US/news/champions-shanghai-watch-and-earn","title":"Champions Shanghai: Watch and Earn","source_name":"VALORANT Esports","source_type":"official","published_at":"2026-09-23T00:00:00Z"},
-  {"watch_id":"esports:valorant","url":"https://valorantesports.com/en-US/news/champions-shanghai-pickems-powered-by-aws","title":"Champions Shanghai: Pick'Ems powered by AWS","source_name":"VALORANT Esports","source_type":"official","published_at":"2026-09-11T00:00:00Z"}
+  {
+    "watch_id": "stock:002491",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-09-28/1225582336.PDF",
+    "title": "通鼎互联：第六届董事会第二十一次会议决议公告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-09-28T00:00:00+08:00",
+    "summary": "董事会9月24日以9票同意通过对外投资收购股权议案，无需提交股东会审议。具体交易内容另见2026-062号公告。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002491",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-07-15/1225424659.PDF",
+    "title": "通鼎互联：关于控股股东权益变动触及 1% 整数倍的提示性公告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-07-15T00:00:00+08:00",
+    "summary": "控股股东无偿捐赠350万股给上海交通大学教育发展基金会，已完成过户。控股股东及一致行动人合计持股比例由36.06%降至35.77%，公司控制权未变化。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002491",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-06-18/1225376579.PDF",
+    "title": "通鼎互联：股票交易异常波动公告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-06-18T00:00:00+08:00",
+    "summary": "6月15日至17日累计涨幅偏离值超过20%。公司澄清与英伟达没有业务关系，并提示光纤价格持续性、扩产和市值偏离基本面的风险。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002491",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225482133.PDF",
+    "title": "通鼎互联：2026 年半年度报告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-08-20T00:00:00+08:00",
+    "summary": "2026年上半年营收约24.58亿元，同比增长61.46%；归母净利润约2.03亿元，上年同期亏损约8960万元；经营现金流净额同比下降11.93%。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002491",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257962.PDF",
+    "title": "通鼎互联：2026 年第一季度报告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-04-30T00:00:00+08:00",
+    "summary": "2026年一季度营收约10.64亿元，同比增长61.13%；归母净利润约5127万元，同比下降61.05%；扣非净利润约1.03亿元。财务数据未经审计。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002491",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-05-15/1225306031.PDF",
+    "title": "通鼎互联：关于举行 2025 年度网上业绩说明会的公告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-05-15T00:00:00+08:00",
+    "summary": "2025年度网上业绩说明会安排2026年5月20日15:00–16:00在全景网举行，采用网络文字互动。这是已结束活动的历史通知。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002296",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-09-11/1225557979.PDF",
+    "title": "辉煌科技：关于部分董事、高级管理人员增持公司股份计划的公告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-09-11T00:00:00+08:00",
+    "summary": "部分董事及高管拟在公告后6个月内集中竞价增持，合计2230万至3630万元，不设价格区间。这是计划，不表示已经完成增持。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002296",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-07-31/1225448495.PDF",
+    "title": "辉煌科技：2026 年半年度报告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-07-31T00:00:00+08:00",
+    "summary": "2026年上半年营收约3.72亿元，同比下降7.91%；归母净利润约1.18亿元，同比下降12.27%；经营现金流净额约1.15亿元，同比增长108.21%。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002296",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225208952.PDF",
+    "title": "辉煌科技：2026 年第一季度报告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-04-28T00:00:00+08:00",
+    "summary": "2026年一季度营收约2.22亿元，同比增长3.16%；归母净利润约8461万元，同比下降11.26%；经营现金流净额约8786万元。财务数据未经审计。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "stock:002296",
+    "url": "https://static.cninfo.com.cn/finalpage/2026-07-31/1225448498.PDF",
+    "title": "辉煌科技：关于 2026 年半年度计提信用及资产减值准备的公告",
+    "source_name": "巨潮资讯",
+    "source_type": "official",
+    "published_at": "2026-07-31T00:00:00+08:00",
+    "summary": "2026年上半年计提信用及资产减值损失约2222.55万元，主要涉及应收账款及合同资产。公告称相应减少半年归母净利润及所有者权益。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:lol",
+    "url": "https://lolesports.com/en-US/news/worlds-anthem-presented-by-true-damage",
+    "title": "Worlds Anthem Presented by True Damage",
+    "source_name": "LoL Esports",
+    "source_type": "official",
+    "published_at": "2026-09-29T00:00:00Z",
+    "summary": "True Damage将演唱2026全球总决赛主题曲Know My Name，音乐视频围绕Faker和T1。计划10月8日18:00 PDT发布，即北京时间10月9日09:00。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:lol",
+    "url": "https://lolesports.com/en-US/news/worlds-2026-venue-event-policies",
+    "title": "WORLDS 2026 VENUE EVENT POLICIES",
+    "source_name": "LoL Esports",
+    "source_type": "official",
+    "published_at": "2026-09-22T00:00:00Z",
+    "summary": "官方更新全球总决赛部分阶段的开播时间，以及得克萨斯与纽约场馆的入场规则，涉及包袋、摄影设备、应援牌和再次入场。决赛安排11月14日在纽约举行。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:lol",
+    "url": "https://lolesports.com/en-US/news/red-bull-league-of-its-own-2026-comes-to-spain",
+    "title": "Red Bull League of Its Own 2026 comes to Spain",
+    "source_name": "LoL Esports",
+    "source_type": "official",
+    "published_at": "2026-09-22T00:00:00Z",
+    "summary": "Red Bull League of Its Own计划12月5日在巴塞罗那举办，T1、G2、Karmine Corp和Movistar KOI参加，是一日活动的官方预告。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:lol",
+    "url": "https://lolesports.com/en-US/lolesports/news/fans-guide-to-the-lcs-championship",
+    "title": "Fan's Guide to the LCS Championship",
+    "source_name": "LoL Esports",
+    "source_type": "official",
+    "published_at": "2026-09-16T00:00:00Z",
+    "summary": "2026 LCS冠军赛安排10月3日至4日在美国Duluth的Gas South Arena举行，前三名获得全球总决赛席位。原文包含门票、日程和现场活动信息。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:cs2",
+    "url": "https://www.counter-strike.net/newsentry/685257114654867461?l=english",
+    "title": "Playoffs at the Cathedral of Counter-Strike",
+    "source_name": "Counter-Strike",
+    "source_type": "official",
+    "published_at": "2026-06-17T00:00:00Z"
+  },
+  {
+    "watch_id": "esports:cs2",
+    "url": "https://www.counter-strike.net/newsentry/672869045073084948",
+    "title": "IEM Cologne 2026",
+    "source_name": "Counter-Strike",
+    "source_type": "official",
+    "published_at": "2026-05-22T00:00:00Z"
+  },
+  {
+    "watch_id": "esports:valorant",
+    "url": "https://valorantesports.com/en-US/news/champions-shanghai-everything-you-need-to-know",
+    "title": "Champions Shanghai: Everything You Need To Know",
+    "source_name": "VALORANT Esports",
+    "source_type": "official",
+    "published_at": "2026-09-11T00:00:00Z",
+    "summary": "上海冠军赛9月24日至10月18日举行，16支队伍参加。小组赛截至10月4日，8队晋级；淘汰赛10月7日开始，采用双败赛制。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:valorant",
+    "url": "https://valorantesports.com/en-GB/news/champions-shanghai-opening-day",
+    "title": "Champions Shanghai Opening Day",
+    "source_name": "VALORANT Esports",
+    "source_type": "official",
+    "published_at": "2026-09-16T00:00:00Z",
+    "summary": "上海冠军赛开幕节目安排9月24日举行，包括城市及社区活动，TenZ、Sacy等参与。通知给出的中国时间为16:00；这是已开始赛事的开幕预告。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:valorant",
+    "url": "https://valorantesports.com/en-US/news/champions-shanghai-watch-and-earn",
+    "title": "Champions Shanghai: Watch and Earn",
+    "source_name": "VALORANT Esports",
+    "source_type": "official",
+    "published_at": "2026-09-23T00:00:00Z",
+    "summary": "官方公布直播奖励和Shotcall互动奖励：小组及淘汰赛观看30分钟可获得指定称号，决赛观看30分钟可获得喷漆。资格受账号和地区条件限制。",
+    "summary_reviewed_at": "2026-10-02"
+  },
+  {
+    "watch_id": "esports:valorant",
+    "url": "https://valorantesports.com/en-US/news/champions-shanghai-pickems-powered-by-aws",
+    "title": "Champions Shanghai: Pick'Ems powered by AWS",
+    "source_name": "VALORANT Esports",
+    "source_type": "official",
+    "published_at": "2026-09-11T00:00:00Z",
+    "summary": "上海冠军赛Pick’Ems支持网页、客户端及Riot Mobile；淘汰赛预测10月4日抽签后开放，10月7日开赛后约10分钟锁定。官方注明中国等部分地区不适用。",
+    "summary_reviewed_at": "2026-10-02"
+  }
 ]

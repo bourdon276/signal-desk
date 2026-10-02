@@ -17,7 +17,8 @@ from information_agent.agent_tools import news_age_label, scoped_registry
 from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
-from information_agent.models import AgentRun, Feedback, Item, User, Watch, now_utc
+from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
+from information_agent.personalization import matches, user_scope
 from information_agent.ranking import ranked_items
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 
@@ -48,6 +49,7 @@ class ManualItemInput(BaseModel):
     watch_id: str
     url: HttpUrl
     title: str = Field(min_length=3, max_length=500)
+    summary: str = Field(default="", max_length=500)
     source_name: str = Field(min_length=2, max_length=120)
     source_type: str = "official"
     published_at: datetime | None = None
@@ -56,6 +58,58 @@ class ManualItemInput(BaseModel):
 
 class AskInput(BaseModel):
     question: str = Field(min_length=3, max_length=300)
+
+
+class TopicInput(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    keywords: list[str] = Field(min_length=1, max_length=5)
+
+
+class ReadingInput(BaseModel):
+    item_id: str
+    read: bool
+
+
+@router.get("/topics")
+def list_topics(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    rows = db.scalars(select(Topic).where(Topic.user_id == user.id).order_by(Topic.created_at))
+    return {"topics": [{"id": t.id, "name": t.name, "keywords": json.loads(t.keywords)} for t in rows]}
+
+
+@router.post("/topics", status_code=201)
+def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    keywords = list(dict.fromkeys(term.strip() for term in payload.keywords))
+    if any(not 2 <= len(term) <= 40 for term in keywords) or not payload.name.strip():
+        raise HTTPException(status_code=422, detail="每个关键词需为 2–40 个字，最多 5 个")
+    owned = list(db.scalars(select(Topic).where(Topic.user_id == user.id)))
+    if len(owned) >= 20:
+        raise HTTPException(status_code=422, detail="最多添加 20 个自定义关注")
+    if any(t.name == payload.name.strip() for t in owned):
+        raise HTTPException(status_code=409, detail="该关注名称已存在")
+    topic = Topic(user_id=user.id, name=payload.name.strip(), keywords=json.dumps(keywords, ensure_ascii=False))
+    db.add(topic)
+    db.flush()
+    db.add(Watch(user_id=user.id, watch_id=topic.id))
+    db.commit()
+    return {"id": topic.id, "name": topic.name, "keywords": keywords}
+
+
+@router.put("/reading")
+def set_reading(payload: ReadingInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    item = db.get(Item, payload.item_id)
+    enabled, topics = user_scope(db, user.id)
+    if item is None or not matches(item, enabled, topics):
+        raise HTTPException(status_code=404, detail="未找到关注范围内的资讯")
+    existing = db.scalar(select(Reading).where(Reading.user_id == user.id, Reading.item_id == item.id))
+    if payload.read and existing is None:
+        db.add(Reading(user_id=user.id, item_id=item.id))
+    elif not payload.read and existing is not None:
+        db.delete(existing)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"item_id": item.id, "read": payload.read}
 
 
 def normalize_url(value: str) -> str:
@@ -142,7 +196,10 @@ def list_watches(user: User = Depends(current_user), db: Session = Depends(get_d
 
 @router.put("/watches")
 def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    if not valid_watch(payload.watch_id):
+    if (
+        not valid_watch(payload.watch_id)
+        and db.scalar(select(Topic.id).where(Topic.id == payload.watch_id, Topic.user_id == user.id)) is None
+    ):
         raise HTTPException(status_code=422, detail="未知关注对象")
     existing = db.scalar(select(Watch).where(Watch.user_id == user.id, Watch.watch_id == payload.watch_id))
     if payload.enabled and existing is None:
@@ -167,9 +224,8 @@ def add_feedback(payload: FeedbackInput, user: User = Depends(current_user), db:
     if payload.action not in {"interested", "not_interested", "duplicate"}:
         raise HTTPException(status_code=422, detail="不支持的反馈动作")
     item = db.get(Item, payload.item_id)
-    watched = item is not None and db.scalar(
-        select(Watch.id).where(Watch.user_id == user.id, Watch.watch_id == item.watch_id)
-    )
+    enabled, topics = user_scope(db, user.id)
+    watched = item is not None and matches(item, enabled, topics)
     if not watched:
         raise HTTPException(status_code=404, detail="未找到关注范围内的资讯")
     event = Feedback(user_id=user.id, item_id=item.id, action=payload.action, reason=payload.reason)
@@ -229,7 +285,7 @@ def add_manual_item(
         watch_id=payload.watch_id,
         canonical_url=url,
         title=payload.title.strip(),
-        summary="",
+        summary=payload.summary.strip(),
         source_name=payload.source_name.strip(),
         source_type=payload.source_type,
         ingestion_mode="manual_link",
@@ -272,6 +328,8 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
     """Evidence-only answer until a model provider is explicitly configured."""
     question = payload.question.strip()
     matching = resolve_watch_ids(question)
+    personal = db.scalars(select(Topic).where(Topic.user_id == user.id))
+    matching.extend(t.id for t in personal if t.name.casefold() in question.casefold())
     supported = bool(matching) or any(word in question for word in ("关注", "资讯", "消息", "新闻", "动态"))
     run = AgentRun(user_id=user.id, kind="evidence_answer", status="running", detail="")
     db.add(run)

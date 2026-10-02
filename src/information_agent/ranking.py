@@ -3,21 +3,24 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from information_agent.models import Feedback, Item, Watch
+from information_agent.models import Feedback, Item, Reading
+from information_agent.personalization import candidate_filter, matches, overview, user_scope
 
 
 def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
-    watch_ids = list(db.scalars(select(Watch.watch_id).where(Watch.user_id == user_id)))
+    watch_ids, topics = user_scope(db, user_id)
     if not watch_ids:
         return []
     items = list(
         db.scalars(
             select(Item)
-            .where(Item.watch_id.in_(watch_ids))
+            .where(candidate_filter(watch_ids, topics))
             .order_by(Item.published_at.desc().nulls_last(), Item.created_at.desc())
             .limit(500)
         )
     )
+    items = [item for item in items if matches(item, watch_ids, topics)]
+    read_ids = set(db.scalars(select(Reading.item_id).where(Reading.user_id == user_id)))
     feedback = list(
         db.scalars(
             select(Feedback)
@@ -31,7 +34,7 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
     item_by_id = {item.id: item for item in items}
     missing_ids = referenced_ids - item_by_id.keys()
     if missing_ids:
-        old_items = db.scalars(select(Item).where(Item.id.in_(missing_ids), Item.watch_id.in_(watch_ids)))
+        old_items = db.scalars(select(Item).where(Item.id.in_(missing_ids)))
         item_by_id.update({item.id: item for item in old_items})
     hidden_events: set[str] = set()
     hidden_items: set[str] = set()
@@ -41,13 +44,18 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
         item = item_by_id.get(event.item_id)
         if item is None:
             continue
+        matched = matches(item, watch_ids, topics)
+        if not matched:
+            continue
         if event.action == "duplicate":
             hidden_events.add(item.event_key)
         elif event.action == "not_interested":
-            watch_weight[item.watch_id] = max(-3, watch_weight[item.watch_id] - 1)
+            for target in matched:
+                watch_weight[target] = max(-3, watch_weight[target] - 1)
             hidden_items.add(item.id)
         elif event.action == "interested":
-            watch_weight[item.watch_id] = min(3, watch_weight[item.watch_id] + 1)
+            for target in matched:
+                watch_weight[target] = min(3, watch_weight[target] + 1)
             liked.add(item.id)
 
     now = datetime.now(UTC)
@@ -60,11 +68,13 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
             published = published.replace(tzinfo=UTC)
         age_hours = max(0, (now - published).total_seconds() / 3600)
         recency = max(0, 100 - age_hours / 24)
-        score = round(recency + watch_weight[item.watch_id] * 15 + (10 if item.id in liked else 0), 2)
-        reason = "近期消息"
-        if watch_weight[item.watch_id] < 0:
+        matched = matches(item, watch_ids, topics)
+        weight = sum(watch_weight[target] for target in matched) / len(matched)
+        score = round(recency + weight * 15 + (10 if item.id in liked else 0), 2)
+        reason = "按发布时间排序"
+        if weight < 0:
             reason = "该主题收到过没兴趣反馈，排序已下调"
-        elif watch_weight[item.watch_id] > 0:
+        elif weight > 0:
             reason = "你对该主题表达过兴趣"
         rows.append(
             {
@@ -72,6 +82,9 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
                 "watch_id": item.watch_id,
                 "title": item.title,
                 "summary": item.summary,
+                "overview": overview(item),
+                "matched_watch_ids": matched,
+                "is_read": item.id in read_ids,
                 "url": item.canonical_url,
                 "source_name": item.source_name,
                 "source_type": item.source_type,
