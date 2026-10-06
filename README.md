@@ -141,3 +141,5 @@ docker compose down -v
 API 比赛 slug 被错误拼成原文网页，导致 404；已修复展示与引用逻辑，保留旧去重标识。新增 Esports Insider Counter-Strike RSS 战队新闻索引，范围有限，生产状态见[复盘 10](docs/retrospectives/10-links-team-news.md)。
 
 [简历描述与面试准备](docs/resume-agent-project.md)区分已实现的工具编排/反馈记忆与尚未实现的模型自主循环，不提供未经测量的效果指标。
+
+本轮修复 `86af669` 已于 2026-10-06 15:54（北京时间）部署成功。新闻 RSS 生产首次同步读取 10 篇、匹配绿龙 0 篇；来源接通不等于战队新闻覆盖完成。
