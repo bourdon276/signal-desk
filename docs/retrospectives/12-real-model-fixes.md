@@ -21,3 +21,7 @@
 完成静态检查和前端构建；本轮未增加或运行测试，也未发起额外付费模型调用。上线后仍需重新查询绿龙、无证据、私人记录问题，核查新的工具日志和事实支持。当前没有新增人工标签或准确率指标。
 
 参考：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
+
+## 上线记录
+
+2026-10-06 20:02，北京时间：Render 部署 `dep-db2e5j7lk1mc73b3gna0`、代码 `d6aa305` 显示 Live，内部 `/ready` 200。PandaScore 同步更新1条记录。仍未复测付费模型问答。
