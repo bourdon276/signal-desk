@@ -29,7 +29,7 @@ SYSTEM = """你是阅讯资讯助手。只能依据工具返回的已入库证�
 新闻是标题索引时不能推断文章正文；API赛事无网页时明确它是供应商记录。
 最终只返回JSON：{"answer":"简短中文回答","evidence_ids":["已取得证据的ID"]}。
 回答控制在400个中文字以内。必须输出裸JSON，不要Markdown代码块。
-每个事实写对应的 [证据ID]。不要生成URL。没有证据时 evidence_ids 为空并说明覆盖不足。
+每个事实写对应的 [证据ID]；也可写 [1]、[2]，数字严格对应 evidence_ids 数组的顺序。不要生成URL。没有证据时 evidence_ids 为空并说明覆盖不足。
 """
 
 
@@ -246,13 +246,37 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
                 or re.search(r"https?://|www\.", answer)
             ):
                 raise RuntimeError("invalid_citation")
-            if any(f"[{i}]" not in answer for i in ids) or any(
-                ref not in ids for ref in re.findall(r"\[([^\]]+)\]", answer)
-            ):
-                raise RuntimeError("missing_inline_citation")
             ordered_ids = list(dict.fromkeys(ids))
-            for index, item_id in enumerate(ordered_ids, 1):
-                answer = answer.replace(f"[{item_id}]", f"[{index}]")
+            # Numeric references refer only to the validated evidence_ids array,
+            # never search result order. Unknown or genuinely absent refs fail closed.
+            referenced = set()
+            invalid_ref = False
+
+            def normalize_reference(match):
+                nonlocal invalid_ref
+                markers = re.split(r"[,，、]\s*", match.group(1))
+                normalized = []
+                for marker in markers:
+                    marker = marker.strip()
+                    if marker in ids:
+                        item_id = marker
+                    elif re.fullmatch(r"[1-5]", marker) and int(marker) <= len(ids):
+                        item_id = ids[int(marker) - 1]
+                    else:
+                        invalid_ref = True
+                        return match.group(0)
+                    referenced.add(item_id)
+                    normalized.append(f"[{ordered_ids.index(item_id) + 1}]")
+                return "".join(normalized)
+
+            answer = re.sub(r"\[([^\]]+)\]", normalize_reference, answer)
+            if invalid_ref or set(ids) != referenced:
+                trace["citation_validation"] = {
+                    "declared_count": len(set(ids)),
+                    "referenced_count": len(referenced),
+                    "unknown_marker": invalid_ref,
+                }
+                raise RuntimeError("missing_inline_citation")
             trace["evidence_count"] = len(ordered_ids)
             # URLs and titles are reconstructed by the server, never trusted from model output.
             return {
