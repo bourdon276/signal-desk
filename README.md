@@ -4,7 +4,7 @@
 
 ## 自动来源与自己的关注
 
-根据首轮体验意见，新增关注已改为对象订阅：A 股证券代码、CS2 战队名称。股票代码精确连接巨潮公告适配器；战队连接 PandaScore fixtures 适配器，`绿龙` 映射为 Team Spirit，关注赛程/进行状态/比分。线上已配置 PandaScore Token；由于此前全局赛程只取第一页，线上同步虽成功却没有可靠显示匹配数量。本地修改改为按战队 ID 查询，并展示抓取、匹配、入库和丢弃数量，**更新部署后的真实赛事验收仍待完成**，详见[阶段复盘 09](docs/retrospectives/09-pandascore-ingestion.md)。股票公告仍需 CNINFO 凭据和展示许可。游戏官方公告降为历史内容，不再持续同步。
+根据首轮体验意见，新增关注已改为对象订阅：A 股证券代码、CS2 战队名称。股票代码精确连接巨潮公告适配器；战队连接 PandaScore fixtures 适配器，`绿龙` 映射为 Team Spirit，关注赛程/进行状态/比分。线上已配置 PandaScore Token；2026-10-06 已部署按战队 ID 查询及采集统计修复（`a71cd10`）。生产同步成功解析 Spirit，收到 101 场赛事、新增入库 98 条，另 3 场因状态不支持跳过；历史列表达到 100 条上限，来源明确显示“部分同步”。登录后信息流展示仍待人工验收，详见[阶段复盘 09](docs/retrospectives/09-pandascore-ingestion.md)。股票公告仍需 CNINFO 凭据和展示许可。游戏官方公告降为历史内容，不再持续同步。
 
 股票正式适配器已准备，**默认关闭，真实股票自动更新仍待数据账号与展示权限**；详见[配置说明](docs/stock-api-setup.md)。战队配置见[CS2 战队来源](docs/team-source-setup.md)。战队来源不等同于战队新闻文章。自动短摘录可能为英文，中文自动摘要尚未实现。[本阶段复盘](docs/retrospectives/08-entity-following.md)记录实现、来源依据、问题与验收缺口。
 
@@ -90,7 +90,7 @@ uv run uvicorn information_agent.main:app --reload
 
 2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。此前版本的 Fed RSS、Steam News 与 `/ready` 均曾实际部署观察成功；旧版本股票源保持未配置。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
 
-2026-10-02 对象关注改版尚待推送部署。部署后还需在 Render 私密配置 `PANDASCORE_TOKEN` 才会出现自动 CS2 战队赛程；CNINFO 股票自动公告继续受单独授权约束。
+对象关注改版与 PandaScore Token 已部署。2026-10-06 15:42（Asia/Shanghai）采集修复 `a71cd10` 在 Render 显示 Live；公网 `/ready` 返回 ready，`/api/sources` 返回战队解析、101 场返回数据、98 条新增入库等统计。CNINFO 股票自动公告继续受单独授权约束。
 
 [用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
 
