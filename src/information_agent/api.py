@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import math
 import re
 from datetime import datetime
 from time import perf_counter
@@ -14,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from information_agent import model_agent
 from information_agent.agent_tools import news_age_label, scoped_registry
 from information_agent.config import settings
 from information_agent.db import get_db
@@ -62,6 +65,7 @@ class ManualItemInput(BaseModel):
 
 class AskInput(BaseModel):
     question: str = Field(min_length=3, max_length=300)
+    use_model: bool = False
 
 
 class TopicInput(BaseModel):
@@ -355,9 +359,66 @@ def list_runs(
     }
 
 
+@router.get("/agent/status")
+def agent_status() -> dict:
+    return {
+        "configured": model_agent.configured(),
+        "model": settings.model_name if model_agent.configured() else None,
+        "max_rounds": model_agent.MAX_ROUNDS,
+        "max_tools": model_agent.MAX_TOOLS,
+    }
+
+
+@router.get("/runs/{run_id}")
+def my_run(run_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    run = db.get(AgentRun, run_id)
+    if run is None or run.user_id != user.id:
+        raise HTTPException(status_code=404, detail="运行记录不存在")
+    return {"id": run.id, "kind": run.kind, "status": run.status, "trace": json.loads(run.detail or "{}")}
+
+
 @router.post("/ask")
 async def ask(payload: AskInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     """Evidence-only answer until a model provider is explicitly configured."""
+    if payload.use_model and model_agent.configured():
+        run = AgentRun(user_id=user.id, kind="model_agent", status="running", detail="")
+        db.add(run)
+        db.commit()
+        trace = {}
+        reserved = None
+        try:
+            enabled, topics = user_scope(db, user.id)
+            names = {t.id: t.name for t in topics}
+            watches = [{"id": key, "name": names.get(key, WATCHES.get(key, key))} for key in sorted(enabled)]
+            reserved = model_agent.reserve(user.id)
+            trace["reserved_cost_cny"] = reserved[1] / 1_000_000
+            result = await asyncio.wait_for(model_agent.run(payload.question, user.id, watches, trace), timeout=40)
+            if not trace.get("usage_unknown"):
+                actual = math.ceil(trace["estimated_cost_cny"] * 1_000_000)
+                model_agent.settle(*reserved, actual)
+                trace["budget_charged_cny"] = actual / 1_000_000
+            else:
+                trace["budget_charged_cny"] = reserved[1] / 1_000_000
+            run.status = "success"
+            run.detail = json.dumps(trace, ensure_ascii=False)
+            run.finished_at = now_utc()
+            run.item_count = len(result["citations"])
+            db.commit()
+            return {**result, "run_id": run.id}
+        except Exception as exc:
+            # Failed/uncertain calls retain their reservation; do not assume upstream refunded them.
+            trace["error_type"] = type(exc).__name__
+            trace["fallback_reason"] = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
+            trace["budget_charged_cny"] = reserved[1] / 1_000_000 if reserved else 0
+            run.status = "failure"
+            run.detail = json.dumps(trace, ensure_ascii=False)
+            run.finished_at = now_utc()
+            db.commit()
+            fallback = await ask(AskInput(question=payload.question), user, db)
+            fallback.update(
+                {"mode": "model_fallback", "model_run_id": run.id, "notice": "模型流程未完成，已回退为已入库证据检索。"}
+            )
+            return fallback
     question = payload.question.strip()
     matching = resolve_watch_ids(question)
     personal = db.scalars(select(Topic).where(Topic.user_id == user.id))

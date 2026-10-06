@@ -15,6 +15,7 @@ ALIASES = {
     "stock:002296": ("辉煌科技", "002296"),
     "gold:london": ("伦敦金", "现货黄金", "国际金价", "黄金市场", "金价"),
     "esports:lol": ("英雄联盟", "league of legends", "lol", "lpl"),
+    "team:cs2:team-spirit": ("team spirit", "spirit", "绿龙", "donk", "sh1ro"),
     "esports:cs2": ("cs2", "cs:go", "csgo", "counter-strike", "反恐精英"),
     "esports:valorant": ("无畏契约", "瓦罗兰特", "valorant", "vct"),
 }

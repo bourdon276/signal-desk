@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from information_agent.db import SessionLocal
 from information_agent.models import Item
+from information_agent.personalization import article_url
 
 FIELDS = (
     "sample_id",
@@ -48,7 +49,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     queue_path = args.output_dir / "annotation_queue.csv"
     items_path = args.output_dir / "items.jsonl"
-    if queue_path.exists():
+    if queue_path.exists() or items_path.exists():
         parser.error(f"{queue_path} already exists; move it before regenerating to preserve labels")
 
     with SessionLocal() as db:
@@ -56,10 +57,14 @@ def main() -> None:
 
     rows = []
     normalized = []
+    skipped_records = 0
     for item in items:
+        if not article_url(item):
+            skipped_records += 1
+            continue
         stable_id = hashlib.sha256(item.canonical_url.encode()).hexdigest()[:16]
         published = item.published_at.isoformat() if item.published_at else ""
-        for target_watch_id in (item.watch_id, NEGATIVE_TARGET[item.watch_id]):
+        for target_watch_id in (item.watch_id, NEGATIVE_TARGET.get(item.watch_id, "esports:lol")):
             rows.append(
                 {
                     "sample_id": f"{stable_id}:{target_watch_id}",
@@ -97,7 +102,10 @@ def main() -> None:
     with items_path.open("w", encoding="utf-8") as handle:
         for item in normalized:
             handle.write(json.dumps(item, ensure_ascii=False) + "\n")
-    print(f"Exported {len(items)} real links and {len(rows)} judgments to {queue_path} and {items_path}")
+    print(
+        f"Exported {len(normalized)} article links and {len(rows)} blank judgments; "
+        f"skipped {skipped_records} API records without public articles"
+    )
 
 
 if __name__ == "__main__":

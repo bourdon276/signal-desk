@@ -41,25 +41,28 @@ def main() -> None:
     results = []
     for watch_id in watches:
         judged = {item_id: value for (target, item_id), value in labels.items() if target == watch_id}
-        tagged = [item for item in items if item["watch_id"] == watch_id and item["item_id"] in judged]
+        tagged = [item for item in items if item["watch_id"] == watch_id]
         tagged.sort(key=lambda item: (item["_timestamp"] is None, -(item["_timestamp"] or 0), item["item_id"]))
         candidates = {
-            "keyword_recency": [item_id for item_id in baseline_rows[watch_id] if item_id in judged],
+            "keyword_recency": baseline_rows[watch_id],
             "source_tagged_recency": [item["item_id"] for item in tagged],
         }
         methods = {}
         for name, ordered in candidates.items():
             top = ordered[:5]
+            complete = len(top) == 5 and all(item_id in judged for item_id in top)
+            judged_top = [item_id for item_id in top if item_id in judged]
             methods[name] = {
+                "judged_at_5": len(judged_top),
                 "returned_at_5": len(top),
-                "p_at_5": round(sum(judged[item_id] for item_id in top) / 5, 3) if len(top) == 5 else None,
-                "relevant_at_5": sum(judged[item_id] for item_id in top),
+                "p_at_5": round(sum(judged[item_id] for item_id in top) / 5, 3) if complete else None,
+                "relevant_at_5": sum(judged[item_id] for item_id in judged_top),
                 "duplicate_rate_at_5": round(
-                    sum(bool(duplicate_of[(watch_id, item_id)]) for item_id in top) / len(top), 3
+                    sum(bool(duplicate_of[(watch_id, item_id)]) for item_id in judged_top) / len(top), 3
                 )
-                if top
+                if complete
                 else None,
-                "false_positive_urls": [by_id[item_id]["url"] for item_id in top if not judged[item_id]],
+                "false_positive_urls": [by_id[item_id]["url"] for item_id in judged_top if not judged[item_id]],
                 "top_ids": top,
             }
         results.append(
@@ -78,7 +81,8 @@ def main() -> None:
         "human_judgments": len(labels),
         "watch_results": results,
         "limits": [
-            "P@5 is N/A when fewer than five judged items are returned.",
+            "P@5 is N/A unless all original top five items are judged; "
+            "unlabeled items are never filtered out before ranking.",
             "The corpus is intentionally curated and small; it does not estimate production relevance.",
             "Source tags were assigned during manual intake, so this comparison measures entity coverage, "
             "not learning from feedback.",

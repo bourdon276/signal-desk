@@ -90,3 +90,10 @@ class Reading(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ModelBudget(Base):
+    __tablename__ = "model_budgets"
+    scope: Mapped[str] = mapped_column(String(96), primary_key=True)
+    charged_micro_cny: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    requests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
