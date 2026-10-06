@@ -129,6 +129,7 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
         sync_queued = request_sync("stock_announcements")
     elif settings.sync_in_web and payload.team_name:
         sync_queued = request_sync("cs2_team_matches")
+        request_sync("cs2_team_news")
     return {
         "id": topic.id,
         "name": topic.name,
@@ -430,7 +431,7 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
     db.commit()
     return {
         "answer": answer,
-        "citations": [{"title": item["title"], "url": item["url"]} for item in evidence],
+        "citations": [{"title": item["title"], "url": item["url"]} for item in evidence if item["url"]],
         "run_id": run.id,
         "mode": "evidence_only",
     }

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from information_agent.models import Feedback, Item, Reading
-from information_agent.personalization import candidate_filter, matches, overview, user_scope
+from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
 
 
 def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
@@ -88,7 +88,7 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
                 "overview": overview(item),
                 "matched_watch_ids": matched,
                 "is_read": item.id in read_ids,
-                "url": item.canonical_url,
+                "url": article_url(item),
                 "source_name": item.source_name,
                 "source_type": item.source_type,
                 "ingestion_mode": item.ingestion_mode,

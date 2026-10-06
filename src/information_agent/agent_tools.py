@@ -10,7 +10,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 
 from information_agent.db import SessionLocal
 from information_agent.models import Item
-from information_agent.personalization import matches, user_scope
+from information_agent.personalization import article_url, matches, user_scope
 from information_agent.ranking import ranked_items
 
 
@@ -105,7 +105,7 @@ class GetEvidence(Tool):
                 "id": item.id,
                 "title": item.title[:200],
                 "summary": item.summary[:500],
-                "url": item.canonical_url,
+                "url": article_url(item),
                 "source_name": item.source_name,
                 "source_type": item.source_type,
                 "ingestion_mode": item.ingestion_mode,

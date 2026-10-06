@@ -8,11 +8,14 @@ from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
 from information_agent.ingest_pandascore import sync as sync_pandascore
 
+from information_agent.ingest_team_news import sync as sync_team_news
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 SYNCERS = {
     "fed": sync_fed,
     "cs2_team_matches": sync_pandascore,
+    "cs2_team_news": sync_team_news,
     "stock_announcements": sync_cninfo,
 }
 _REQUESTED: set[str] = set()

@@ -131,6 +131,8 @@ def _match_item(
 
     original = safe_link(str(match.get("url", "")), LINK_HOSTS)
     slug = match.get("slug")
+
+    # This fallback is a stable deduplication key, never a public article link.
     url = original or (safe_link(f"https://www.pandascore.co/csgo/matches/{slug}", LINK_HOSTS) if slug else None)
     if not url:
         return None, "missing_link"

@@ -33,3 +33,11 @@ Token 只通过 `Authorization: Bearer ...` 请求头发送到 `api.pandascore.c
 - [CS2 各端点套餐范围](https://developers.pandascore.co/docs/plan-reference)
 - [PandaScore 服务条款](https://www.pandascore.co/terms-and-condition)：公开演示启用前由账号持有人确认适用范围。
 - [Team Spirit 官方 Telegram](https://t.me/team_spirit_official)：后续人工/获授权来源候选；当前不自动读取频道页面。
+
+## 战队新闻索引（2026-10-06）
+
+新增 [Esports Insider Counter-Strike RSS](https://esportsinsider.com/feed?category_name=counter-strike)，无需 Token。每小时同步，新增战队也排队同步一次。标题/短摘录匹配正式队名；绿龙增加 Spirit、donk、sh1ro 别名，并排除 Spirit Academy。仅展示标题、时间、原文链接和自编来源说明，不保存新闻正文。
+
+订阅窗口通常只有最近 10 篇，未匹配到新闻不能解释为外部没有新闻。来源面板展示读取、相关与新增数量。别名可能误判、多队文章只分配给首个命中战队，仍待人工评估。
+
+PandaScore 比赛 slug 不对应公开网页。旧地址保留为去重标识，页面与问答不再提供这些无效外部跳转，显示 API 赛事记录。

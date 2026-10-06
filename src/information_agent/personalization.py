@@ -54,3 +54,10 @@ def overview(item):
         "text": f"{item.source_name}发布了关于“{item.title}”的消息。当前只收录标题和链接，具体数字与细节尚未提取。",
         "kind": "标题概况",
     }
+
+
+def article_url(item):
+    """A provider record key is not evidence that a public article exists."""
+    if item.source_name == "PandaScore · CS2 赛事数据":
+        return None
+    return item.canonical_url

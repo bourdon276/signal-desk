@@ -14,6 +14,14 @@ from information_agent.personalization import candidate_filter, matches, user_sc
 
 SOURCE_SPECS = [
     {
+        "id": "cs2_team_news",
+        "kind": "cs2_team_news_sync",
+        "watch_id": "esports:cs2",
+        "label": "CS2 战队新闻",
+        "automatic": True,
+        "description": "Esports Insider Counter-Strike RSS；按战队及少量选手别名匹配标题/短摘录，只展示标题与原文链接。订阅窗口有限，不保证每个战队都有新消息。",
+    },
+    {
         "id": "fed_monetary_rss",
         "kind": "fed_rss_sync",
         "watch_id": "gold:london",
@@ -87,7 +95,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
         "last_attempt_at": latest.started_at.isoformat() if latest else None,
         "last_error": "最近采集未成功，已有消息保留。" if latest and latest.status == "failure" else None,
     }
-    if kind == PANDASCORE_KIND:
+    if kind in {PANDASCORE_KIND, "cs2_team_news_sync"}:
         metrics = None
         if latest and latest.status in {"success", "partial"}:
             try:
@@ -96,6 +104,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
                 detail = None
             if isinstance(detail, dict):
                 fields = (
+                    "entries",
                     "teams",
                     "resolved_teams",
                     "unresolved_teams",
@@ -172,7 +181,7 @@ def coverage(db, user_id):
             note = (
                 "已保存 CS2 战队关注；等待 PandaScore 私密 API Token。配置后同步赛程、比分，不等同于战队新闻。"
                 if not auto
-                else "战队赛程、进行状态和比分由 PandaScore fixtures API 提供；不覆盖战队公告和完整赛事新闻。"
+                else "PandaScore 提供赛程/比分；Esports Insider RSS 补充战队相关新闻索引，窗口与匹配范围有限。"
             )
         else:
             auto = automatic_found

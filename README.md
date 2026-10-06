@@ -135,3 +135,9 @@ docker compose down -v
 | 6 最终交付 | [工程说明](docs/engineering-notes.md) | README 已更新，最终指标和演示待补 |
 
 2026-10-02 已完成 Python Ruff 静态检查、TypeScript/Vite 构建和本地 Docker 镜像构建。尚未运行功能场景验收，不据此声称账号隔离、推荐效果或生产可靠性已通过验证。
+
+### 2026-10-06 后续修复
+
+API 比赛 slug 被错误拼成原文网页，导致 404；已修复展示与引用逻辑，保留旧去重标识。新增 Esports Insider Counter-Strike RSS 战队新闻索引，范围有限，生产状态见[复盘 10](docs/retrospectives/10-links-team-news.md)。
+
+[简历描述与面试准备](docs/resume-agent-project.md)区分已实现的工具编排/反馈记忆与尚未实现的模型自主循环，不提供未经测量的效果指标。
