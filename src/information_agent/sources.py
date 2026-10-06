@@ -68,7 +68,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
     success = (
         db.scalar(
             select(AgentRun)
-            .where(condition, AgentRun.status == "success")
+            .where(condition, AgentRun.status.in_(("success", "partial")))
             .order_by(AgentRun.started_at.desc())
             .limit(1)
         )
@@ -81,12 +81,41 @@ def state(db, kind: str | None, automatic: bool) -> dict:
         stamp = stamp.replace(tzinfo=UTC)
     if automatic and stamp and now_utc() - stamp > timedelta(hours=8 if kind and kind.startswith(PREFIX) else 2):
         status = "stale"
-    return {
+    result = {
         "status": status,
         "last_success_at": success.finished_at.isoformat() if success and success.finished_at else None,
         "last_attempt_at": latest.started_at.isoformat() if latest else None,
         "last_error": "最近采集未成功，已有消息保留。" if latest and latest.status == "failure" else None,
     }
+    if kind == PANDASCORE_KIND:
+        metrics = None
+        if latest and latest.status in {"success", "partial"}:
+            try:
+                detail = json.loads(latest.detail)
+            except (TypeError, ValueError):
+                detail = None
+            if isinstance(detail, dict):
+                fields = (
+                    "teams",
+                    "resolved_teams",
+                    "unresolved_teams",
+                    "matches",
+                    "matched",
+                    "created",
+                    "updated",
+                    "skipped",
+                    "full_pages",
+                )
+                metrics = {field: detail[field] for field in fields if isinstance(detail.get(field), int)}
+                dropped = detail.get("dropped")
+                if isinstance(dropped, dict):
+                    metrics["dropped"] = {
+                        str(reason): count
+                        for reason, count in dropped.items()
+                        if isinstance(count, int)
+                    }
+        result["last_result"] = metrics
+    return result
 
 
 def public_sources(db):

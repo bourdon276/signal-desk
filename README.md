@@ -4,7 +4,7 @@
 
 ## 自动来源与自己的关注
 
-根据首轮体验意见，新增关注已改为对象订阅：A 股证券代码、CS2 战队名称。股票代码精确连接巨潮公告适配器；战队连接 PandaScore fixtures 适配器，`绿龙` 映射为 Team Spirit，关注赛程/进行状态/比分。新增适配器和私密 Token 配置说明已提交，**实际自动更新需维护者在 Render 配置 PandaScore Token；股票公告仍需 CNINFO 凭据和展示许可**。未配置来源时界面明确显示待配置。游戏官方公告降为历史内容，不再持续同步。
+根据首轮体验意见，新增关注已改为对象订阅：A 股证券代码、CS2 战队名称。股票代码精确连接巨潮公告适配器；战队连接 PandaScore fixtures 适配器，`绿龙` 映射为 Team Spirit，关注赛程/进行状态/比分。线上已配置 PandaScore Token；由于此前全局赛程只取第一页，线上同步虽成功却没有可靠显示匹配数量。本地修改改为按战队 ID 查询，并展示抓取、匹配、入库和丢弃数量，**更新部署后的真实赛事验收仍待完成**，详见[阶段复盘 09](docs/retrospectives/09-pandascore-ingestion.md)。股票公告仍需 CNINFO 凭据和展示许可。游戏官方公告降为历史内容，不再持续同步。
 
 股票正式适配器已准备，**默认关闭，真实股票自动更新仍待数据账号与展示权限**；详见[配置说明](docs/stock-api-setup.md)。战队配置见[CS2 战队来源](docs/team-source-setup.md)。战队来源不等同于战队新闻文章。自动短摘录可能为英文，中文自动摘要尚未实现。[本阶段复盘](docs/retrospectives/08-entity-following.md)记录实现、来源依据、问题与验收缺口。
 
@@ -33,7 +33,7 @@ PandaScore 官方把 CS2 赛程与结果列入 Fixtures 计划，免费档标注
 
 - 已形成[来源矩阵](docs/source_matrix.md)、[用户流程](docs/user_flow.md)、[试用预算](docs/budget.md)、[长期 Eval 协议](docs/eval/protocol.md)和[固定关键词基线](scripts/eval/baseline.py)。
 - 已准备[标注模板](data/eval/annotation_template.csv)、[试用者匿名登记表](docs/beta_recruitment.md)与[来源权限跟进清单](docs/source_permissions.md)。
-- 本地已迁移数据库，手动收录20条经核对的股票/电竞原文链接、美联储RSS同步15条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。PandaScore fixtures 与巨潮适配器代码已准备；两者的私密凭据尚未配置，真实自动入库待验收。
+- 本地已迁移数据库，手动收录20条经核对的股票/电竞原文链接、美联储RSS同步15条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。线上 PandaScore Token 已配置；本地开发环境与线上环境使用独立凭据。CNINFO 凭据和展示权限仍未配置。
 - 已实现个人关注、反馈、撤销、规则排序、React 页面，以及基于 nanobot Tool 接口的受限证据检索。问答目前为不调用模型的证据列表；nanobot 模型循环尚未接入。
 - 本周先争取 1–2 位非开发者实际使用。用户表示已有 5 位愿意参与，尚待匿名核实。已生成 [35 条真实链接、70 个待人工判断位置](data/eval/README.md)，但真实人工标注数仍为 0；本周 Eval 目标是至少 30 条真实链接标注。
 - 首轮试用的服务器、模型和数据 API 总预算上限为 ¥200/月。
@@ -58,7 +58,7 @@ uv run uvicorn information_agent.main:app --reload
 
 然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择已有关注，或在“管理关注”添加 A 股代码 / CS2 战队对象；阅读卡片概况，可标为已读、提交反馈，并在“最近反馈”中撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
 
-多个来源同步也可通过 `uv run python -m information_agent.sync_worker` 每小时运行：美联储 RSS、可选的 PandaScore CS2 赛程与结果、可选巨潮公告。PandaScore Token 未配置时不请求 API；CNINFO 需 Token 与许可开关同时启用。Valve News 不再持续同步。若请求失败，已有条目仍可阅读，`/api/sources` 会显示各来源失败、延迟或未配置状态；`/api/coverage` 返回当前用户关注的覆盖说明。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
+多个来源同步也可通过 `uv run python -m information_agent.sync_worker` 每小时运行：美联储 RSS、可选的 PandaScore CS2 赛程与结果、可选巨潮公告。PandaScore Token 未配置时不请求 API；配置后会按战队 ID 筛选赛程，并把每次的解析、匹配、入库和丢弃数量显示在来源状态中；达到接口单页上限会提示可能不完整。CNINFO 需 Token 与许可开关同时启用。Valve News 不再持续同步。若请求失败，已有条目仍可阅读，`/api/sources` 会显示各来源失败、延迟或未配置状态；`/api/coverage` 返回当前用户关注的覆盖说明。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
 
 ### 数据流与 Agent 边界
 

@@ -64,22 +64,29 @@ def _score_by_team(match: dict) -> dict[str, int]:
     }
 
 
-def _match_item(match: dict, watch_id: str, followed_name: str) -> dict | None:
+def _match_item(
+    match: dict,
+    watch_id: str,
+    followed_name: str,
+    followed_team_id: str,
+) -> tuple[dict | None, str | None]:
     opponents = match.get("opponents")
     if not isinstance(opponents, list):
-        return None
+        return None, "missing_opponents"
     team_entries = [
         entry.get("opponent")
         for entry in opponents
         if isinstance(entry, dict) and isinstance(entry.get("opponent"), dict)
     ]
     followed_key = normalize_entity_name(followed_name)
-    followed = next(
-        (team for team in team_entries if normalize_entity_name(str(team.get("name", ""))) == followed_key),
-        None,
-    )
+    followed = next((team for team in team_entries if str(team.get("id", "")) == followed_team_id), None)
     if followed is None:
-        return None
+        followed = next(
+            (team for team in team_entries if normalize_entity_name(str(team.get("name", ""))) == followed_key),
+            None,
+        )
+    if followed is None:
+        return None, "team_not_in_match"
     other = next((team for team in team_entries if team.get("id") != followed.get("id")), None)
     opponent_name = str(other.get("name", "對手")) if other else "待定對手"
     status = str(match.get("status", "not_started"))
@@ -92,11 +99,24 @@ def _match_item(match: dict, watch_id: str, followed_name: str) -> dict | None:
     else:
         title = f"{followed_name} vs {opponent_name} · {label}"
 
-    when = parse_timestamp(match.get("scheduled_at")) or parse_timestamp(match.get("begin_at"))
     if status == "finished":
-        when = parse_timestamp(match.get("end_at")) or parse_timestamp(match.get("begin_at")) or when
-    if when is None or when > now_utc() and status != "not_started":
-        return None
+        when = (
+            parse_timestamp(match.get("end_at"))
+            or parse_timestamp(match.get("begin_at"))
+            or parse_timestamp(match.get("scheduled_at"))
+        )
+    elif status == "running":
+        when = parse_timestamp(match.get("begin_at")) or parse_timestamp(match.get("scheduled_at"))
+    else:
+        when = parse_timestamp(match.get("scheduled_at")) or parse_timestamp(match.get("begin_at"))
+    if when is None:
+        return None, "missing_timestamp"
+    if status == "not_started" and when < now_utc():
+        return None, "stale_not_started"
+    if status != "not_started" and when > now_utc():
+        return None, "future_timestamp"
+    if status not in MATCH_STATES:
+        return None, "unsupported_status"
 
     tournament = match.get("tournament")
     tournament_name = str(tournament.get("name", "")) if isinstance(tournament, dict) else ""
@@ -113,7 +133,7 @@ def _match_item(match: dict, watch_id: str, followed_name: str) -> dict | None:
     slug = match.get("slug")
     url = original or (safe_link(f"https://www.pandascore.co/csgo/matches/{slug}", LINK_HOSTS) if slug else None)
     if not url:
-        return None
+        return None, "missing_link"
     return {
         "watch_id": watch_id,
         "canonical_url": url,
@@ -123,10 +143,39 @@ def _match_item(match: dict, watch_id: str, followed_name: str) -> dict | None:
         "source_type": "other",
         "ingestion_mode": "api",
         "published_at": when,
-    }
+    }, None
 
 
-def _fetch_matches(client: httpx.Client, path: str, token: str) -> list[dict]:
+def _resolve_team_id(client: httpx.Client, name: str, token: str) -> str | None:
+    search_names = [name]
+    if normalize_entity_name(name) == "teamspirit":
+        search_names.append("Spirit")
+    for search_name in search_names:
+        payload = json.loads(
+            download(
+                client,
+                f"{API_ROOT}/teams",
+                params={"per_page": 100, "search[name]": search_name},
+                headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            )
+        )
+        if not isinstance(payload, list) or any(not isinstance(row, dict) for row in payload):
+            raise ValueError("unexpected PandaScore team response schema")
+        expected = normalize_entity_name(search_name)
+        team = next(
+            (
+                row
+                for row in payload
+                if normalize_entity_name(str(row.get("name", ""))) == expected and row.get("id") is not None
+            ),
+            None,
+        )
+        if team:
+            return str(team["id"])
+    return None
+
+
+def _fetch_matches(client: httpx.Client, path: str, token: str, team_id: str) -> list[dict]:
     payload = json.loads(
         download(
             client,
@@ -135,12 +184,13 @@ def _fetch_matches(client: httpx.Client, path: str, token: str) -> list[dict]:
                 "per_page": 100,
                 "sort": "-begin_at" if path == "past" else "begin_at",
                 "filter[videogame_title]": "cs-2",
+                "filter[opponent_id]": team_id,
             },
             headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
         )
     )
     if not isinstance(payload, list) or any(not isinstance(row, dict) for row in payload):
-        raise ValueError("unexpected PandaScore response schema")
+        raise ValueError("unexpected PandaScore match response schema")
     return payload[:100]
 
 
@@ -156,38 +206,63 @@ def sync() -> dict:
         db.commit()
         try:
             token = settings.pandascore_token.get_secret_value()
+            stats = {
+                "teams": len(teams),
+                "resolved_teams": 0,
+                "unresolved_teams": 0,
+                "matches": 0,
+                "matched": 0,
+                "created": 0,
+                "updated": 0,
+                "skipped": 0,
+                "full_pages": 0,
+                "dropped": {},
+            }
             with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-                matches = []
-                for state in ("upcoming", "running", "past"):
-                    matches.extend(_fetch_matches(client, state, token))
-            # Deduplicate API rows if a provider briefly returns the same match in two lifecycle lists.
-            rows_by_id = {str(row.get("id") or row.get("slug")): row for row in matches}
-            created, updated, skipped = 0, 0, 0
-            for marker, team_name in teams.items():
-                for match in rows_by_id.values():
-                    values = _match_item(match, marker, team_name)
-                    if values is None:
+                for marker, team_name in teams.items():
+                    team_id = _resolve_team_id(client, team_name, token)
+                    if team_id is None:
+                        stats["unresolved_teams"] += 1
                         continue
-                    existing = db.scalar(select(Item).where(Item.canonical_url == values["canonical_url"]))
-                    if existing is None:
-                        created += store_item(db, **values)
-                    elif existing.watch_id == marker and (
-                        existing.title != values["title"] or existing.summary != values["summary"]
-                    ):
-                        existing.title = values["title"]
-                        existing.summary = values["summary"]
-                        existing.published_at = values["published_at"]
-                        updated += 1
-                    elif existing.watch_id != marker:
-                        skipped += 1
-            run.status = "success"
-            run.item_count = created + updated
-            run.detail = json.dumps(
-                {"teams": len(teams), "matches": len(rows_by_id), "updated": updated, "skipped": skipped}
-            )
+                    stats["resolved_teams"] += 1
+                    rows_by_id = {}
+                    for state in ("upcoming", "running", "past"):
+                        rows = _fetch_matches(client, state, token, team_id)
+                        if len(rows) == 100:
+                            stats["full_pages"] += 1
+                        rows_by_id.update(
+                            {
+                                str(row.get("id") or row.get("slug")): row
+                                for row in rows
+                                if row.get("id") is not None or row.get("slug")
+                            }
+                        )
+                    stats["matches"] += len(rows_by_id)
+                    for match in rows_by_id.values():
+                        values, dropped_reason = _match_item(match, marker, team_name, team_id)
+                        if values is None:
+                            reason = dropped_reason or "unknown"
+                            stats["dropped"][reason] = stats["dropped"].get(reason, 0) + 1
+                            continue
+                        stats["matched"] += 1
+                        existing = db.scalar(select(Item).where(Item.canonical_url == values["canonical_url"]))
+                        if existing is None:
+                            stats["created"] += store_item(db, **values)
+                        elif existing.watch_id == marker and (
+                            existing.title != values["title"] or existing.summary != values["summary"]
+                        ):
+                            existing.title = values["title"]
+                            existing.summary = values["summary"]
+                            existing.published_at = values["published_at"]
+                            stats["updated"] += 1
+                        elif existing.watch_id != marker:
+                            stats["skipped"] += 1
+            run.status = "partial" if stats["unresolved_teams"] or stats["full_pages"] else "success"
+            run.item_count = stats["created"] + stats["updated"]
+            run.detail = json.dumps(stats)
             run.finished_at = now_utc()
             db.commit()
-            return {"run_id": run.id, "created": created, "updated": updated, "matches": len(rows_by_id)}
+            return {"run_id": run.id, **stats}
         except Exception as exc:
             db.rollback()
             run.status = "failure"
