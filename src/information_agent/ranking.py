@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from information_agent.models import Feedback, Item, Reading
 from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
+from information_agent.query_policy import display_title
 
 
 def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
@@ -83,7 +84,7 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
             {
                 "id": item.id,
                 "watch_id": item.watch_id,
-                "title": item.title,
+                "title": display_title(item.title, item.source_name),
                 "summary": item.summary,
                 "overview": overview(item),
                 "matched_watch_ids": matched,

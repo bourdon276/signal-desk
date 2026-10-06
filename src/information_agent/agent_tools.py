@@ -11,12 +11,15 @@ from nanobot.agent.tools.registry import ToolRegistry
 from information_agent.db import SessionLocal
 from information_agent.models import Item
 from information_agent.personalization import article_url, matches, user_scope
+from information_agent.query_policy import display_title
 from information_agent.ranking import ranked_items
 
 
 class SearchItems(Tool):
-    def __init__(self, user_id: str) -> None:
+    def __init__(self, user_id: str, since: datetime | None = None, until: datetime | None = None) -> None:
         self.user_id = user_id
+        self.since = since
+        self.until = until
 
     @property
     def name(self) -> str:
@@ -51,6 +54,19 @@ class SearchItems(Tool):
     async def execute(self, limit: int, watch_id: str | None = None, watch_ids: list[str] | None = None) -> list[dict]:
         with SessionLocal() as db:
             items = ranked_items(db, self.user_id, limit=500)
+            if self.since is not None or self.until is not None:
+
+                def in_window(item):
+                    if not item["published_at"]:
+                        return False
+                    published = datetime.fromisoformat(item["published_at"])
+                    if published.tzinfo is None:
+                        published = published.replace(tzinfo=UTC)
+                    return (self.since is None or published >= self.since) and (
+                        self.until is None or published < self.until
+                    )
+
+                items = [item for item in items if in_window(item)]
             if watch_id is not None:
                 items = [
                     item for item in items if watch_id in item["matched_watch_ids"] or watch_id == item["watch_id"]
@@ -61,7 +77,7 @@ class SearchItems(Tool):
                 {
                     "id": item["id"],
                     "watch_id": item["watch_id"],
-                    "title": item["title"][:200],
+                    "title": display_title(item["title"], item["source_name"])[:200],
                     "published_at": item["published_at"],
                     "source_name": item["source_name"],
                     "ingestion_mode": item["ingestion_mode"],
@@ -103,7 +119,7 @@ class GetEvidence(Tool):
                 return None
             return {
                 "id": item.id,
-                "title": item.title[:200],
+                "title": display_title(item.title, item.source_name)[:200],
                 "summary": item.summary[:500],
                 "url": article_url(item),
                 "source_name": item.source_name,
@@ -113,9 +129,9 @@ class GetEvidence(Tool):
             }
 
 
-def scoped_registry(user_id: str) -> ToolRegistry:
+def scoped_registry(user_id: str, since: datetime | None = None, until: datetime | None = None) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(SearchItems(user_id))
+    registry.register(SearchItems(user_id, since, until))
     registry.register(GetEvidence(user_id))
     return registry
 

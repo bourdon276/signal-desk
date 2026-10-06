@@ -30,9 +30,7 @@ def configured() -> bool:
 
 
 def watched_teams(db) -> dict[str, str]:
-    topics = db.scalars(
-        select(Topic).join(Watch, (Watch.watch_id == Topic.id) & (Watch.user_id == Topic.user_id))
-    )
+    topics = db.scalars(select(Topic).join(Watch, (Watch.watch_id == Topic.id) & (Watch.user_id == Topic.user_id)))
     result = {}
     for topic in topics:
         for marker in json.loads(topic.keywords):
@@ -94,10 +92,14 @@ def _match_item(
     scores = _score_by_team(match)
     followed_score = scores.get(str(followed.get("id")))
     opponent_score = scores.get(str(other.get("id"))) if other else None
-    if followed_score is not None and opponent_score is not None:
+    if status != "not_started" and followed_score is not None and opponent_score is not None:
         title = f"{followed_name} {followed_score} : {opponent_score} {opponent_name} · {label}"
     else:
-        title = f"{followed_name} vs {opponent_name} · {label}"
+        title = (
+            f"待赛：{followed_name} vs {opponent_name}"
+            if status == "not_started"
+            else f"{followed_name} vs {opponent_name} · {label}"
+        )
 
     if status == "finished":
         when = (

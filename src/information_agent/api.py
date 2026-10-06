@@ -24,6 +24,7 @@ from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
 from information_agent.entities import canonical_team_name, is_team_watch_id, team_watch_id
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
 from information_agent.personalization import matches, user_scope
+from information_agent.query_policy import PRIVATE_DENIAL, query_window, requests_other_users
 from information_agent.ranking import ranked_items
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
@@ -380,6 +381,17 @@ def my_run(run_id: str, user: User = Depends(current_user), db: Session = Depend
 @router.post("/ask")
 async def ask(payload: AskInput, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     """Evidence-only answer until a model provider is explicitly configured."""
+    if requests_other_users(payload.question):
+        run = AgentRun(
+            user_id=user.id,
+            kind="policy_denial",
+            status="success",
+            detail=json.dumps({"reason": "private_data_request", "tools": [], "model_calls": 0, "model_cost_cny": 0}),
+            finished_at=now_utc(),
+        )
+        db.add(run)
+        db.commit()
+        return {"answer": PRIVATE_DENIAL, "citations": [], "run_id": run.id, "mode": "permission_denied"}
     if payload.use_model and model_agent.configured():
         run = AgentRun(user_id=user.id, kind="model_agent", status="running", detail="")
         db.add(run)
@@ -415,8 +427,22 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
             run.finished_at = now_utc()
             db.commit()
             fallback = await ask(AskInput(question=payload.question), user, db)
+            reason = trace["fallback_reason"]
+            reason_text = {
+                "output_truncated": "模型回答超过长度限制",
+                "invalid_answer_json": "模型回答格式不符合要求",
+                "invalid_citation": "模型引用未通过校验",
+                "missing_inline_citation": "模型引用标记不完整",
+                "tool_limit": "模型工具调用超过限制",
+                "context_limit": "检索上下文超过限制",
+                "budget_exhausted": "今日调用次数或费用预算已达上限",
+                "request_budget": "单次预算不足",
+                "TimeoutError": "模型处理超时",
+                "ReadTimeout": "模型服务响应超时",
+                "HTTPStatusError": "模型服务返回错误",
+            }.get(reason, "模型流程未完成")
             fallback.update(
-                {"mode": "model_fallback", "model_run_id": run.id, "notice": "模型流程未完成，已回退为已入库证据检索。"}
+                {"mode": "model_fallback", "model_run_id": run.id, "notice": reason_text + "，已回退为已入库证据检索。"}
             )
             return fallback
     question = payload.question.strip()
@@ -432,7 +458,8 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
     run = AgentRun(user_id=user.id, kind="evidence_answer", status="running", detail="")
     db.add(run)
     db.commit()
-    registry = scoped_registry(user.id)
+    since, until = query_window(question)
+    registry = scoped_registry(user.id, since, until)
     trace = []
 
     async def execute_tool(name: str, arguments: dict):
@@ -492,7 +519,9 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
     db.commit()
     return {
         "answer": answer,
-        "citations": [{"title": item["title"], "url": item["url"]} for item in evidence if item["url"]],
+        "citations": [
+            {"title": item["title"], "url": item["url"], "source_name": item["source_name"]} for item in evidence
+        ],
         "run_id": run.id,
         "mode": "evidence_only",
     }
