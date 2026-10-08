@@ -261,11 +261,21 @@ def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Se
 @router.get("/feed")
 def feed(
     view: Literal["news", "matches", "all"] = "news",
+    watch_id: str | None = Query(default=None, max_length=64),
     limit: int = Query(default=50, ge=1, le=100),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    return {"items": ranked_items(db, user.id, limit, view=view), "view": view, "recent_days": 30, "upcoming_days": 7}
+    diagnostics = {}
+    items = ranked_items(db, user.id, limit, view=view, watch_id=watch_id, diagnostics=diagnostics)
+    return {
+        "items": items,
+        "view": view,
+        "watch_id": watch_id,
+        "recent_days": 30,
+        "upcoming_days": 7,
+        "diagnostics": diagnostics,
+    }
 
 
 @router.post("/feedback", status_code=201)

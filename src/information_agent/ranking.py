@@ -11,16 +11,37 @@ from information_agent.query_policy import display_title
 
 
 def ranked_items(
-    db: Session, user_id: str, limit: int = 50, *, view: str = "all", recent_only: bool = True
+    db: Session,
+    user_id: str,
+    limit: int = 50,
+    *,
+    view: str = "all",
+    recent_only: bool = True,
+    watch_id: str | None = None,
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     watch_ids, topics = user_scope(db, user_id)
-    if not watch_ids:
+    if diagnostics is not None:
+        diagnostics.update(
+            candidates=0,
+            hidden_not_interested=0,
+            hidden_duplicate=0,
+            eligible_count=0,
+            unread_count=0,
+            returned_count=0,
+            candidate_limit_reached=False,
+            omitted_by_limit=0,
+            hiding_feedback=[],
+        )
+    if not watch_ids or (watch_id is not None and watch_id not in watch_ids):
         return []
+    candidate_watches = {watch_id} if watch_id else watch_ids
+    candidate_topics = [topic for topic in topics if topic.id == watch_id] if watch_id else topics
     items = list(
         db.scalars(
             select(Item)
             .where(
-                candidate_filter(watch_ids, topics),
+                candidate_filter(candidate_watches, candidate_topics),
                 view_filter(view),
                 recent_filter(datetime.now(UTC)) if recent_only else True,
             )
@@ -28,7 +49,11 @@ def ranked_items(
             .limit(500)
         )
     )
-    items = [item for item in items if matches(item, watch_ids, topics)]
+    if diagnostics is not None:
+        diagnostics["candidate_limit_reached"] = len(items) == 500
+    items = [item for item in items if matches(item, candidate_watches, candidate_topics)]
+    if diagnostics is not None:
+        diagnostics["candidates"] = len(items)
     read_ids = set(db.scalars(select(Reading.item_id).where(Reading.user_id == user_id)))
     feedback = list(
         db.scalars(
@@ -83,7 +108,13 @@ def ranked_items(
     now = datetime.now(UTC)
     rows = []
     for item in items:
-        if item.event_key in hidden_events or item.id in hidden_items:
+        if item.id in hidden_items:
+            if diagnostics is not None:
+                diagnostics["hidden_not_interested"] += 1
+            continue
+        if item.event_key in hidden_events:
+            if diagnostics is not None:
+                diagnostics["hidden_duplicate"] += 1
             continue
         published = item.published_at or item.created_at
         if published.tzinfo is None:
@@ -134,4 +165,22 @@ def ranked_items(
         )
     # Stable sorting preserves the database's recency order when scores tie.
     rows.sort(key=lambda row: -row["score"])
+    if diagnostics is not None:
+        blocked_ids = {item.id for item in items if item.id in hidden_items}
+        blocked_events = {item.event_key for item in items if item.event_key in hidden_events}
+        diagnostics["hiding_feedback"] = [
+            {"id": event.id, "action": event.action, "title": item_by_id[event.item_id].title[:200]}
+            for event in reversed(feedback)
+            if event.item_id in item_by_id
+            and (
+                (event.action == "not_interested" and event.item_id in blocked_ids)
+                or (event.action == "duplicate" and item_by_id[event.item_id].event_key in blocked_events)
+            )
+        ][:20]
+        diagnostics.update(
+            eligible_count=len(rows),
+            unread_count=sum(not row["is_read"] for row in rows),
+            returned_count=min(limit, len(rows)),
+            omitted_by_limit=max(0, len(rows) - limit),
+        )
     return rows[:limit]
