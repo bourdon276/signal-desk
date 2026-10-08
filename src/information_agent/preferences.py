@@ -34,10 +34,11 @@ def content_kind(item) -> str:
         return "prediction"
     if item.source_name == "Valve · Steam" or re.search(r"patch notes|counter-strike 2 update|版本更新|更新日志", text):
         return "game_update"
+    # Publisher interview headlines often use Speaker: "quote" without the word interview.
+    if re.search(r"\binterviews?\b|采访|专访|[:：]\s*[\"“]", text):
+        return "interview"
     if re.search(r"\b(roster|transfer|signs?|benched|joins?|departs?|lineup)\b|转会|阵容|离队|加盟", text):
         return "roster"
-    if re.search(r"\b(interview|exclusive)\b|采访|专访", text):
-        return "interview"
     if "战队新闻" in item.source_name or item.watch_id.startswith("team:"):
         return "team_news"
     return "other"

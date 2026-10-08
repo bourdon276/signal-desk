@@ -17,6 +17,7 @@ def ranked_items(
     limit: int = 50,
     *,
     view: str = "all",
+    news_kind: str = "all",
     recent_only: bool = True,
     apply_quality: bool = True,
     watch_id: str | None = None,
@@ -29,6 +30,7 @@ def ranked_items(
             hidden_not_interested=0,
             hidden_duplicate=0,
             quality_excluded=0,
+            kind_excluded=0,
             eligible_count=0,
             unread_count=0,
             returned_count=0,
@@ -62,6 +64,11 @@ def ranked_items(
         if diagnostics is not None:
             diagnostics["quality_excluded"] = len(items) - len(qualified)
         items = qualified
+    if news_kind != "all":
+        of_kind = [item for item in items if content_kind(item) == news_kind]
+        if diagnostics is not None:
+            diagnostics["kind_excluded"] = len(items) - len(of_kind)
+        items = of_kind
     read_ids = set(db.scalars(select(Reading.item_id).where(Reading.user_id == user_id)))
     feedback = list(
         db.scalars(

@@ -174,7 +174,14 @@ class SearchNews(Tool):
         # Respect both current subscription scope and the question's local date window.
         # Filter before truncating so unrelated library items cannot crowd out discovery results.
         with SessionLocal() as db:
-            candidates = ranked_items(db, self.user_id, limit=500, view="news", watch_id=watch_id)
+            candidates = ranked_items(
+                db,
+                self.user_id,
+                limit=500,
+                view="news",
+                watch_id=watch_id,
+                news_kind=focus if focus in {"interview", "roster", "financial"} else "all",
+            )
         candidates = [r for r in candidates if r["id"] in allowed_ids]
         rows = []
         for row in candidates:

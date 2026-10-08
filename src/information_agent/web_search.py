@@ -7,6 +7,7 @@ import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
@@ -24,12 +25,13 @@ from information_agent.ingest_team_news import mentions_team
 from information_agent.models import AgentRun, Item, SearchBudget, SearchCache, Topic, Watch, now_utc
 from information_agent.news_quality import news_exclusion
 from information_agent.personalization import user_scope
+from information_agent.preferences import content_kind
 from information_agent.search_provider import configured, provider
 
 KIND = "web_news_search_sync"
 FOCUSES = {"recent", "roster", "interview", "financial"}
 TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg"]
-SEARCH_POLICY_VERSION = "team-news-v3-quality"
+SEARCH_POLICY_VERSION = "team-news-v4-focus"
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 
 
@@ -229,6 +231,9 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
                 values, reason = normalize_result(row, target, domains, now_utc())
                 if reason:
                     dropped[reason] = dropped.get(reason, 0) + 1
+                    continue
+                if focus in {"interview", "roster", "financial"} and content_kind(SimpleNamespace(**values)) != focus:
+                    dropped["focus_mismatch"] = dropped.get("focus_mismatch", 0) + 1
                     continue
                 created += int(store_item(db, **values))
                 item = db.scalar(

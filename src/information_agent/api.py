@@ -262,16 +262,18 @@ def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Se
 def feed(
     view: Literal["news", "matches", "all"] = "news",
     watch_id: str | None = Query(default=None, max_length=64),
+    news_kind: Literal["all", "interview", "roster", "financial"] = "all",
     limit: int = Query(default=50, ge=1, le=100),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     diagnostics = {}
-    items = ranked_items(db, user.id, limit, view=view, watch_id=watch_id, diagnostics=diagnostics)
+    items = ranked_items(db, user.id, limit, view=view, watch_id=watch_id, news_kind=news_kind, diagnostics=diagnostics)
     return {
         "items": items,
         "view": view,
         "watch_id": watch_id,
+        "news_kind": news_kind,
         "recent_days": 30,
         "upcoming_days": 7,
         "diagnostics": diagnostics,
