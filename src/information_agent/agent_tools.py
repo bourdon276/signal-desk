@@ -188,7 +188,12 @@ class SearchNews(Tool):
             rows.append(
                 {key: row[key] for key in ("id", "watch_id", "title", "published_at", "source_name", "ingestion_mode")}
             )
-        return {**result, "results": rows[:5]}
+        return {
+            **result,
+            "results": rows[:5],
+            "eligible_count": len(rows),
+            "not_visible_count": max(0, len(allowed_ids) - len(rows)),
+        }
 
 
 def scoped_registry(

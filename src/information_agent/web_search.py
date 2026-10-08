@@ -27,7 +27,8 @@ from information_agent.search_provider import configured, provider
 
 KIND = "web_news_search_sync"
 FOCUSES = {"recent", "roster", "interview", "financial"}
-TEAM_DOMAINS = ["esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg"]
+TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg"]
+SEARCH_POLICY_VERSION = "team-news-v2"
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 
 
@@ -67,7 +68,7 @@ def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
         query = f"{name} {target['watch_id'][6:]} 股票 公司 公告 财报 新闻"
         return query, STOCK_DOMAINS
     suffix = {"roster": "roster transfer", "interview": "interview", "recent": "news", "financial": "news"}[focus]
-    return f'"{name}" Counter-Strike CS2 {suffix}', TEAM_DOMAINS
+    return f"{name} CS2 {suffix}", TEAM_DOMAINS
 
 
 def timestamp(value) -> datetime | None:
@@ -80,7 +81,12 @@ def timestamp(value) -> datetime | None:
             stamp = parsedate_to_datetime(value)
         except (ValueError, TypeError, OverflowError):
             return None
-    return stamp.astimezone(UTC) if stamp.tzinfo else None
+    if stamp.tzinfo is None:
+        # A provider date without a time is usable only as an estimated calendar date.
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            return None
+        stamp = stamp.replace(tzinfo=UTC)
+    return stamp.astimezone(UTC)
 
 
 def normalize_result(row, target, domains, now):
@@ -108,8 +114,10 @@ def normalize_result(row, target, domains, now):
     if not title:
         return None, "missing_title"
     stamp = timestamp(row.get("published_date"))
-    if stamp is None or not now - timedelta(days=30) <= stamp <= now:
-        return None, "missing_or_outside_date"
+    if stamp is None:
+        return None, "missing_date"
+    if not now - timedelta(days=30) <= stamp <= now:
+        return None, "outside_30_days"
     text = title + " " + excerpt
     if target["kind"] == "stock":
         code = target["watch_id"][6:]
@@ -120,7 +128,11 @@ def normalize_result(row, target, domains, now):
     else:
         if not mentions_team(text, target["name"]):
             return None, "entity_mismatch"
-        if not re.search(r"\bcs2\b|counter[ -]strike|\bdonk\b|\bsh1ro\b|反恐精英", text, re.I):
+        hltv = host == "hltv.org" or host.endswith(".hltv.org")
+        if hltv and not re.match(r"^/news/\d+/", parts.path):
+            return None, "not_news_article"
+        cs2_section = hltv or bool(re.match(r"^/(?:cs2|csgo)/(?:news|articles)/", parts.path, re.I))
+        if not cs2_section and not re.search(r"\bcs2\b|counter[ -]strike|\bdonk\b|\bsh1ro\b|反恐精英", text, re.I):
             return None, "missing_cs2_context"
     # Provider excerpts and estimated dates are not verified article bodies.
     return {
@@ -192,7 +204,9 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         return {"status": "unsupported_focus", "results": [], "search_credits": 0}
     query, domains = request_spec(target, focus)
     adapter = provider()
-    key = hashlib.sha256(json.dumps([adapter.cache_namespace, target["watch_id"], query, domains]).encode()).hexdigest()
+    key = hashlib.sha256(
+        json.dumps([SEARCH_POLICY_VERSION, adapter.cache_namespace, target["watch_id"], query, domains]).encode()
+    ).hexdigest()
     cached, token = claim(key, user_id)
     if cached is not None:
         return cached
@@ -246,8 +260,8 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
                 .values(
                     payload=json.dumps(result),
                     expires_at=now + timedelta(hours=settings.search_cache_hours)
-                    if result["status"] == "success"
-                    else now + timedelta(minutes=5),
+                    if result["status"] == "success" and result["results"]
+                    else now + timedelta(minutes=5 if result["status"] != "success" else 15),
                     lease_until=now,
                 )
             )

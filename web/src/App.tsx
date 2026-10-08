@@ -91,10 +91,14 @@ export default function App() {
     if (busy || filter === 'all') return
     setBusy(true); setError(''); setNotice('')
     try {
-      const r = await api<{ status: string; results: unknown[]; cache_hit?: boolean; search_credits: number }>('/search', token, { method: 'POST', body: JSON.stringify({ watch_id: filter, focus: 'recent' }) })
+      const r = await api<{ status: string; results: unknown[]; cache_hit?: boolean; search_credits: number; entries?: number; matched?: number; eligible_count?: number; not_visible_count?: number; dropped?: Record<string, number> }>('/search', token, { method: 'POST', body: JSON.stringify({ watch_id: filter, focus: 'recent' }) })
+      setUnread(false); setQuickRead(false)
       await refresh()
       const labels: Record<string, string> = { not_configured: '搜索服务尚未配置，已有消息仍可阅读。', budget_exhausted: '搜索额度已达上限，稍后再试。', busy: '该对象正在搜索，请稍后刷新。', failure: '搜索未完成，已有消息仍可阅读。', outside_supported_scope: '当前仅支持已关注的 A 股或 CS2 战队。' }
-      setNotice(r.status === 'success' ? `${r.cache_hit ? '复用缓存' : '搜索完成'}，可展示 ${r.results.length} 条匹配消息。摘录未核验全文；零条结果不代表外部没有消息。` : labels[r.status] || '搜索未完成。')
+      const dropLabels: Record<string, string> = { entity_mismatch: '与战队或股票不匹配', missing_cs2_context: '无法确认属于CS2', missing_date: '缺少可用日期', outside_30_days: '不在近30天', missing_or_outside_date: '日期缺失或超时', not_news_article: '非新闻页面', unapproved_url: '不在允许来源', url_owned_by_other_entity: '已归入其他对象' }
+      const dropped = Object.entries(r.dropped || {}).map(([reason, count]) => `${dropLabels[reason] || '格式不完整'} ${count} 条`).join('；')
+      const detail = `搜索返回 ${r.entries ?? 0} 条，匹配入库 ${r.matched ?? 0} 条，当前可展示 ${r.eligible_count ?? r.results.length} 条。${dropped ? `过滤：${dropped}。` : ''}${r.not_visible_count ? `另有 ${r.not_visible_count} 条因当前范围、时间或个人反馈未展示。` : ''}`
+      setNotice(r.status === 'success' ? `${r.cache_hit ? '复用缓存' : '搜索完成'}。${detail}摘录未核验全文。${feedView !== 'news' ? '请切到「新闻」栏目查看。' : ''}` : labels[r.status] || '搜索未完成。')
     } catch (cause) { setError((cause as Error).message) } finally { setBusy(false) }
   }
   async function ask(e: FormEvent) {
