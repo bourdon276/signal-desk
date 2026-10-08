@@ -76,7 +76,7 @@ def main():
                 )
             )
         db.flush()
-        before = [row for row in ranked_items(db, user.id, limit=500) if row["id"] in eval_ids]
+        before = [row for row in ranked_items(db, user.id, limit=500, recent_only=False) if row["id"] in eval_ids]
         for number, row in enumerate(train):
             db.add(
                 Feedback(
@@ -88,7 +88,7 @@ def main():
                 )
             )
         db.flush()
-        after = [row for row in ranked_items(db, user.id, limit=500) if row["id"] in eval_ids]
+        after = [row for row in ranked_items(db, user.id, limit=500, recent_only=False) if row["id"] in eval_ids]
     engine.dispose()
 
     def arm(rows):

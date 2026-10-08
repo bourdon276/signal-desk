@@ -7,6 +7,7 @@ from datetime import UTC, timedelta
 from sqlalchemy import select
 
 from information_agent.config import settings
+from information_agent.freshness import MATCH_SOURCE, recent_filter
 from information_agent.ingest_cninfo import PREFIX, configured
 from information_agent.ingest_pandascore import KIND as PANDASCORE_KIND
 from information_agent.ingest_pandascore import configured as pandascore_configured
@@ -153,7 +154,7 @@ def coverage(db, user_id):
     rows = list(
         db.scalars(
             select(Item)
-            .where(candidate_filter(enabled, topics))
+            .where(candidate_filter(enabled, topics), recent_filter())
             .order_by(Item.published_at.desc().nulls_last(), Item.created_at.desc())
             .limit(500)
         )
@@ -195,7 +196,8 @@ def coverage(db, user_id):
             note = (
                 "已保存 CS2 战队关注；等待 PandaScore 私密 API Token。配置后同步赛程、比分，不等同于战队新闻。"
                 if not auto
-                else "PandaScore 提供赛程/比分；Esports Insider RSS 补充战队相关新闻索引，窗口与匹配范围有限。"
+                else "新闻由 Tavily 搜索与媒体 RSS 补充；PandaScore 只提供比赛记录，"
+                "单独展示近30天赛果及未来7天赛程。新闻覆盖仍可能不足。"
             )
         else:
             auto = automatic_found
@@ -213,6 +215,8 @@ def coverage(db, user_id):
                 "watch_id": watch_id,
                 "automatic": auto,
                 "matched_count": len(found),
+                "news_count": sum(r.source_name != MATCH_SOURCE for r in found),
+                "match_count": sum(r.source_name == MATCH_SOURCE for r in found),
                 "count_limit": 500,
                 "latest_item_at": latest,
                 "description": note,

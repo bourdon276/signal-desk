@@ -1,7 +1,7 @@
 """CS2 team fixtures and results from PandaScore's documented REST API."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 from zoneinfo import ZoneInfo
 
@@ -11,6 +11,7 @@ from sqlalchemy import select
 from information_agent.config import settings
 from information_agent.db import SessionLocal
 from information_agent.entities import canonical_team_name, is_team_watch_id, normalize_entity_name
+from information_agent.freshness import RECENT_DAYS, UPCOMING_DAYS
 from information_agent.ingest_common import download, safe_link, store_item
 from information_agent.models import AgentRun, Item, Topic, Watch, now_utc
 
@@ -113,9 +114,14 @@ def _match_item(
         when = parse_timestamp(match.get("scheduled_at")) or parse_timestamp(match.get("begin_at"))
     if when is None:
         return None, "missing_timestamp"
-    if status == "not_started" and when < now_utc():
+    now = now_utc()
+    if when < now - timedelta(days=RECENT_DAYS):
+        return None, "older_than_30_days"
+    if when > now + timedelta(days=UPCOMING_DAYS):
+        return None, "beyond_upcoming_window"
+    if status == "not_started" and when < now:
         return None, "stale_not_started"
-    if status != "not_started" and when > now_utc():
+    if status != "not_started" and when > now:
         return None, "future_timestamp"
     if status not in MATCH_STATES:
         return None, "unsupported_status"

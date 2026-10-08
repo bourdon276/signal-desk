@@ -8,6 +8,7 @@ import math
 import re
 from datetime import datetime
 from time import perf_counter
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -259,11 +260,12 @@ def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Se
 
 @router.get("/feed")
 def feed(
+    view: Literal["news", "matches", "all"] = "news",
     limit: int = Query(default=50, ge=1, le=100),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    return {"items": ranked_items(db, user.id, limit)}
+    return {"items": ranked_items(db, user.id, limit, view=view), "view": view, "recent_days": 30, "upcoming_days": 7}
 
 
 @router.post("/feedback", status_code=201)
@@ -513,7 +515,12 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
             raise RuntimeError(f"{name} failed")
         return result
 
-    search_args = {"limit": 5}
+    wants_matches = any(word in question for word in ("比赛", "赛程", "赛果", "比分", "待赛"))
+    wants_news = any(word in question for word in ("新闻", "消息", "资讯"))
+    search_args = {
+        "limit": 5,
+        "view": "all" if wants_matches and wants_news else "matches" if wants_matches else "news",
+    }
     if matching:
         search_args["watch_ids"] = matching
     try:

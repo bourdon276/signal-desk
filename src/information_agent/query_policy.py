@@ -23,7 +23,11 @@ def query_window(question: str) -> tuple[datetime | None, datetime | None]:
     if "昨天" in question:
         return (today - timedelta(days=1)).astimezone(UTC), today.astimezone(UTC)
     explicit = re.search(r"(?:近|过去|最近)\s*(\d{1,3})\s*天", question)
-    days = min(90, max(1, int(explicit.group(1)))) if explicit else 7
+    if re.search(r"(?:最近|近|过去)\s*(?:一个|一|1)?月", question):
+        return now - timedelta(days=30), now
+    days = min(90, max(1, int(explicit.group(1)))) if explicit else 30
+    if not explicit and any(word in question for word in ("本周", "这周")):
+        days = 7
     if explicit or any(word in question for word in ("最近", "近期", "本周", "这周")):
         end = now + timedelta(days=7) if any(word in question for word in ("赛程", "待赛", "即将")) else now
         return now - timedelta(days=days), end

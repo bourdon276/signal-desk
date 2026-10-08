@@ -3,20 +3,27 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from information_agent.freshness import recent_filter, view_filter
 from information_agent.models import Feedback, Item, Reading
 from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
 from information_agent.preferences import KIND_LABELS, REASONS, content_kind, preference_key
 from information_agent.query_policy import display_title
 
 
-def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
+def ranked_items(
+    db: Session, user_id: str, limit: int = 50, *, view: str = "all", recent_only: bool = True
+) -> list[dict]:
     watch_ids, topics = user_scope(db, user_id)
     if not watch_ids:
         return []
     items = list(
         db.scalars(
             select(Item)
-            .where(candidate_filter(watch_ids, topics))
+            .where(
+                candidate_filter(watch_ids, topics),
+                view_filter(view),
+                recent_filter(datetime.now(UTC)) if recent_only else True,
+            )
             .order_by(Item.published_at.desc().nulls_last(), Item.created_at.desc())
             .limit(500)
         )

@@ -46,15 +46,18 @@ class SearchItems(Tool):
                     "minItems": 1,
                     "maxItems": 26,
                 },
+                "view": {"type": "string", "enum": ["news", "matches", "all"]},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 5},
             },
             "required": ["limit"],
             "additionalProperties": False,
         }
 
-    async def execute(self, limit: int, watch_id: str | None = None, watch_ids: list[str] | None = None) -> list[dict]:
+    async def execute(
+        self, limit: int, watch_id: str | None = None, watch_ids: list[str] | None = None, view: str = "news"
+    ) -> list[dict]:
         with SessionLocal() as db:
-            items = ranked_items(db, self.user_id, limit=500)
+            items = ranked_items(db, self.user_id, limit=500, view=view)
             if self.since is not None or self.until is not None:
 
                 def in_window(item):
@@ -171,7 +174,7 @@ class SearchNews(Tool):
         # Respect both current subscription scope and the question's local date window.
         # Filter before truncating so unrelated library items cannot crowd out discovery results.
         with SessionLocal() as db:
-            candidates = ranked_items(db, self.user_id, limit=500)
+            candidates = ranked_items(db, self.user_id, limit=500, view="news")
         candidates = [r for r in candidates if r["id"] in allowed_ids]
         rows = []
         for row in candidates:
