@@ -7,8 +7,8 @@ import time
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
 from information_agent.ingest_pandascore import sync as sync_pandascore
-
 from information_agent.ingest_team_news import sync as sync_team_news
+from information_agent.web_search import sync as sync_web_news
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -17,6 +17,7 @@ SYNCERS = {
     "cs2_team_matches": sync_pandascore,
     "cs2_team_news": sync_team_news,
     "stock_announcements": sync_cninfo,
+    "web_news": sync_web_news,
 }
 _REQUESTED: set[str] = set()
 _REQUEST_LOCK = threading.Lock()

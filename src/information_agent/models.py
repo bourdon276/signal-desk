@@ -97,3 +97,18 @@ class ModelBudget(Base):
     scope: Mapped[str] = mapped_column(String(96), primary_key=True)
     charged_micro_cny: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     requests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class SearchBudget(Base):
+    __tablename__ = "search_budgets"
+    scope: Mapped[str] = mapped_column(String(96), primary_key=True)
+    credits: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class SearchCache(Base):
+    __tablename__ = "search_cache"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_token: Mapped[str] = mapped_column(String(36), nullable=False)

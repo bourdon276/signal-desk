@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     cninfo_display_allowed: bool = False
     cninfo_daily_request_limit: int = Field(default=24, ge=1, le=100)
     pandascore_token: SecretStr = SecretStr("")
+    search_enabled: bool = False
+    tavily_api_key: SecretStr = SecretStr("")
+    search_day_credit_limit: int = Field(default=20, ge=1, le=100)
+    search_month_credit_limit: int = Field(default=600, ge=1, le=1000)
+    search_user_day_limit: int = Field(default=5, ge=1, le=20)
+    search_cache_hours: int = Field(default=6, ge=1, le=24)
 
     model_enabled: bool = False
     model_api_key: SecretStr = SecretStr("")

@@ -6,20 +6,32 @@ from datetime import UTC, timedelta
 
 from sqlalchemy import select
 
+from information_agent.config import settings
 from information_agent.ingest_cninfo import PREFIX, configured
 from information_agent.ingest_pandascore import KIND as PANDASCORE_KIND
 from information_agent.ingest_pandascore import configured as pandascore_configured
 from information_agent.models import AgentRun, Item, now_utc
 from information_agent.personalization import candidate_filter, matches, user_scope
+from information_agent.search_provider import configured as search_configured
 
 SOURCE_SPECS = [
+    {
+        "id": "web_news_search",
+        "kind": "web_news_search_sync",
+        "watch_id": "public_entities",
+        "label": "公开新闻搜索",
+        "automatic": search_configured(),
+        "description": "搜索关注的股票/CS2战队，允许名单来源、近30天、共享缓存。"
+        "结果为搜索摘录，全文与发布日期未独立核验；请求成功不代表覆盖完整。",
+    },
     {
         "id": "cs2_team_news",
         "kind": "cs2_team_news_sync",
         "watch_id": "esports:cs2",
         "label": "CS2 战队新闻",
         "automatic": True,
-        "description": "Esports Insider Counter-Strike RSS；按战队及少量选手别名匹配标题/短摘录，只展示标题与原文链接。订阅窗口有限，不保证每个战队都有新消息。",
+        "description": "Esports Insider Counter-Strike RSS；按战队及少量选手别名匹配标题/短摘录，"
+        "只展示标题与原文链接。订阅窗口有限，不保证每个战队都有新消息。",
     },
     {
         "id": "fed_monetary_rss",
@@ -87,7 +99,10 @@ def state(db, kind: str | None, automatic: bool) -> dict:
     stamp = latest.started_at if latest else None
     if stamp is not None and stamp.tzinfo is None:
         stamp = stamp.replace(tzinfo=UTC)
-    if automatic and stamp and now_utc() - stamp > timedelta(hours=8 if kind and kind.startswith(PREFIX) else 2):
+    stale_hours = 8 if kind and kind.startswith(PREFIX) else 2
+    if kind == "web_news_search_sync":
+        stale_hours = settings.search_cache_hours + 2
+    if automatic and stamp and now_utc() - stamp > timedelta(hours=stale_hours):
         status = "stale"
     result = {
         "status": status,
@@ -95,7 +110,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
         "last_attempt_at": latest.started_at.isoformat() if latest else None,
         "last_error": "最近采集未成功，已有消息保留。" if latest and latest.status == "failure" else None,
     }
-    if kind in {PANDASCORE_KIND, "cs2_team_news_sync"}:
+    if kind in {PANDASCORE_KIND, "cs2_team_news_sync", "web_news_search_sync"}:
         metrics = None
         if latest and latest.status in {"success", "partial"}:
             try:
@@ -114,14 +129,13 @@ def state(db, kind: str | None, automatic: bool) -> dict:
                     "updated",
                     "skipped",
                     "full_pages",
+                    "search_credits",
                 )
                 metrics = {field: detail[field] for field in fields if isinstance(detail.get(field), int)}
                 dropped = detail.get("dropped")
                 if isinstance(dropped, dict):
                     metrics["dropped"] = {
-                        str(reason): count
-                        for reason, count in dropped.items()
-                        if isinstance(count, int)
+                        str(reason): count for reason, count in dropped.items() if isinstance(count, int)
                     }
         result["last_result"] = metrics
     return result

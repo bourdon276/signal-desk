@@ -48,7 +48,11 @@ def overview(item):
     if item.summary:
         return {
             "text": item.summary[:500],
-            "kind": "来源短摘录" if item.ingestion_mode in {"rss", "api"} else "原文概况",
+            "kind": "搜索摘录（未核验全文）"
+            if item.ingestion_mode == "search"
+            else "来源短摘录"
+            if item.ingestion_mode in {"rss", "api"}
+            else "原文概况",
         }
     return {
         "text": f"{item.source_name}发布了关于“{item.title}”的消息。当前只收录标题和链接，具体数字与细节尚未提取。",

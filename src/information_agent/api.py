@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from information_agent import model_agent
-from information_agent.agent_tools import news_age_label, scoped_registry
+from information_agent.agent_tools import SearchNews, news_age_label, scoped_registry
 from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
@@ -26,9 +26,11 @@ from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, U
 from information_agent.personalization import matches, user_scope
 from information_agent.query_policy import PRIVATE_DENIAL, query_window, requests_other_users
 from information_agent.ranking import ranked_items
+from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
 from information_agent.sync_worker import request_sync
+from information_agent.web_search import FOCUSES
 
 router = APIRouter(prefix="/api")
 
@@ -67,6 +69,12 @@ class ManualItemInput(BaseModel):
 class AskInput(BaseModel):
     question: str = Field(min_length=3, max_length=300)
     use_model: bool = False
+    use_search: bool = False
+
+
+class SearchInput(BaseModel):
+    watch_id: str = Field(min_length=1, max_length=64)
+    focus: str = "recent"
 
 
 class TopicInput(BaseModel):
@@ -135,6 +143,8 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
     elif settings.sync_in_web and payload.team_name:
         sync_queued = request_sync("cs2_team_matches")
         request_sync("cs2_team_news")
+    if settings.sync_in_web and search_configured():
+        sync_queued = request_sync("web_news") or sync_queued
     return {
         "id": topic.id,
         "name": topic.name,
@@ -371,7 +381,18 @@ def agent_status() -> dict:
         "model": settings.model_name if model_agent.configured() else None,
         "max_rounds": model_agent.MAX_ROUNDS,
         "max_tools": model_agent.MAX_TOOLS,
+        "search_max_rounds": model_agent.SEARCH_MAX_ROUNDS,
+        "search_configured": search_configured(),
+        "search_day_credit_limit": settings.search_day_credit_limit,
+        "search_month_credit_limit": settings.search_month_credit_limit,
     }
+
+
+@router.post("/search")
+async def search_news(payload: SearchInput, user: User = Depends(current_user)) -> dict:
+    if payload.focus not in FOCUSES:
+        raise HTTPException(status_code=422, detail="无效搜索类别")
+    return await SearchNews(user.id, None, None).execute(payload.watch_id, payload.focus)
 
 
 @router.get("/runs/{run_id}")
@@ -406,9 +427,18 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
             enabled, topics = user_scope(db, user.id)
             names = {t.id: t.name for t in topics}
             watches = [{"id": key, "name": names.get(key, WATCHES.get(key, key))} for key in sorted(enabled)]
-            reserved = model_agent.reserve(user.id)
+            reserved = model_agent.reserve(user.id, allow_search=payload.use_search and search_configured())
             trace["reserved_cost_cny"] = reserved[1] / 1_000_000
-            result = await asyncio.wait_for(model_agent.run(payload.question, user.id, watches, trace), timeout=40)
+            result = await asyncio.wait_for(
+                model_agent.run(
+                    payload.question,
+                    user.id,
+                    watches,
+                    trace,
+                    allow_search=payload.use_search and search_configured(),
+                ),
+                timeout=40,
+            )
             if not trace.get("usage_unknown"):
                 actual = math.ceil(trace["estimated_cost_cny"] * 1_000_000)
                 model_agent.settle(*reserved, actual)

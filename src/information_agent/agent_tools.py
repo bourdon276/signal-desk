@@ -1,4 +1,4 @@
-"""User-scoped nanobot tools. The public API exposes only these two capabilities."""
+"""User-scoped nanobot tools with optional, bounded public news discovery."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from information_agent.models import Item
 from information_agent.personalization import article_url, matches, user_scope
 from information_agent.query_policy import display_title
 from information_agent.ranking import ranked_items
+from information_agent.web_search import FOCUSES, discover, targets
 
 
 class SearchItems(Tool):
@@ -129,10 +130,75 @@ class GetEvidence(Tool):
             }
 
 
-def scoped_registry(user_id: str, since: datetime | None = None, until: datetime | None = None) -> ToolRegistry:
+class SearchNews(Tool):
+    def __init__(self, user_id: str, since: datetime | None, until: datetime | None):
+        self.user_id, self.since, self.until = user_id, since, until
+
+    @property
+    def name(self):
+        return "search_news"
+
+    @property
+    def description(self):
+        return (
+            "Discover public news for ONE subscribed stock or CS2 team, store metadata, return scoped IDs. "
+            "Only public entity names go to the search provider. No arbitrary queries or URLs."
+        )
+
+    @property
+    def read_only(self):
+        return False
+
+    @property
+    def parameters(self):
+        return {
+            "type": "object",
+            "properties": {
+                "watch_id": {"type": "string", "maxLength": 64},
+                "focus": {"type": "string", "enum": sorted(FOCUSES)},
+            },
+            "required": ["watch_id", "focus"],
+            "additionalProperties": False,
+        }
+
+    async def execute(self, watch_id: str, focus: str):
+        with SessionLocal() as db:
+            target = targets(db, self.user_id).get(watch_id)
+        if target is None:
+            return {"status": "outside_supported_scope", "results": [], "search_credits": 0}
+        result = await discover(target, focus, self.user_id)
+        allowed_ids = set(result["results"])
+        # Respect both current subscription scope and the question's local date window.
+        # Filter before truncating so unrelated library items cannot crowd out discovery results.
+        with SessionLocal() as db:
+            candidates = ranked_items(db, self.user_id, limit=500)
+        candidates = [r for r in candidates if r["id"] in allowed_ids]
+        rows = []
+        for row in candidates:
+            stamp = datetime.fromisoformat(row["published_at"]) if row["published_at"] else None
+            if stamp and stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=UTC)
+            if (self.since is not None and (stamp is None or stamp < self.since)) or (
+                self.until is not None and (stamp is None or stamp >= self.until)
+            ):
+                continue
+            rows.append(
+                {key: row[key] for key in ("id", "watch_id", "title", "published_at", "source_name", "ingestion_mode")}
+            )
+        return {**result, "results": rows[:5]}
+
+
+def scoped_registry(
+    user_id: str,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    allow_search: bool = False,
+) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(SearchItems(user_id, since, until))
     registry.register(GetEvidence(user_id))
+    if allow_search:
+        registry.register(SearchNews(user_id, since, until))
     return registry
 
 

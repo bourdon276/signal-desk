@@ -7,3 +7,5 @@
 .query-input::placeholder{color:#929d93;opacity:1}.query-input:focus::placeholder{color:transparent}
 
 .feedback-options{margin-top:12px;padding:12px;background:#f5f6f0;border-radius:5px}.feedback-options p{font-size:12px;margin:0 0 10px}.feedback-options button{font-size:12px;margin:0 8px 8px 0}.feedback-options small{display:block;color:#788473;line-height:1.7}
+
+.search-discovery{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}.search-discovery small{color:#788473;font-size:11px}
