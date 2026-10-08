@@ -210,6 +210,12 @@ def coverage(db, user_id):
             if watch_id in {"esports:lol", "esports:valorant"}:
                 note = "历史收录可读；该游戏尚无自动来源。"
         latest = next((r.published_at.isoformat() for r in found if r.published_at), None)
+        latest_news = next(
+            (r.published_at.isoformat() for r in found if r.source_name != MATCH_SOURCE and r.published_at), None
+        )
+        latest_match = next(
+            (r.published_at.isoformat() for r in found if r.source_name == MATCH_SOURCE and r.published_at), None
+        )
         result.append(
             {
                 "watch_id": watch_id,
@@ -219,6 +225,8 @@ def coverage(db, user_id):
                 "match_count": sum(r.source_name == MATCH_SOURCE for r in found),
                 "count_limit": 500,
                 "latest_item_at": latest,
+                "latest_news_at": latest_news,
+                "latest_match_at": latest_match,
                 "description": note,
                 **source,
             }
