@@ -265,6 +265,10 @@ def add_feedback(payload: FeedbackInput, user: User = Depends(current_user), db:
     watched = item is not None and matches(item, enabled, topics)
     if not watched:
         raise HTTPException(status_code=404, detail="未找到关注范围内的资讯")
+    if payload.reason not in {None, "content_type", "source", "hide_only"}:
+        raise HTTPException(status_code=422, detail="请选择内容类型、来源或仅隐藏本条")
+    if payload.action == "duplicate" and payload.reason is not None:
+        raise HTTPException(status_code=422, detail="重复消息不支持偏好原因")
     event = Feedback(user_id=user.id, item_id=item.id, action=payload.action, reason=payload.reason)
     db.add(event)
     db.commit()

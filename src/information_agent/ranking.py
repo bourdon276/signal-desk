@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from information_agent.models import Feedback, Item, Reading
 from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
+from information_agent.preferences import KIND_LABELS, REASONS, content_kind, preference_key
 from information_agent.query_policy import display_title
 
 
@@ -40,6 +41,7 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
     hidden_events: set[str] = set()
     hidden_items: set[str] = set()
     watch_weight = dict.fromkeys(watch_ids, 0)
+    facet_weight: dict[tuple[str, str, str], int] = {}
     liked: set[str] = set()
     for event in feedback:
         item = item_by_id.get(event.item_id)
@@ -47,6 +49,18 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
             continue
         matched = matches(item, watch_ids, topics)
         if not matched:
+            continue
+        if event.action in {"interested", "not_interested"} and event.reason in REASONS:
+            if event.action == "not_interested":
+                hidden_items.add(item.id)
+            else:
+                liked.add(item.id)
+            facet = preference_key(item, event.reason)
+            if facet:
+                direction = 1 if event.action == "interested" else -1
+                for target in matched:
+                    key = (target, *facet)
+                    facet_weight[key] = max(-3, min(3, facet_weight.get(key, 0) + direction))
             continue
         if event.action == "duplicate":
             hidden_events.add(item.event_key)
@@ -71,7 +85,13 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
         recency = max(0, 100 - age_hours / 24)
         matched = matches(item, watch_ids, topics)
         weight = sum(watch_weight[target] for target in matched) / len(matched)
-        score = round(recency + weight * 15 + (10 if item.id in liked else 0), 2)
+        kind = content_kind(item)
+        facet = sum(
+            facet_weight.get((target, "kind", kind), 0) + facet_weight.get((target, "source", item.source_name), 0)
+            for target in matched
+        ) / len(matched)
+        facet = max(-3, min(3, facet))
+        score = round(recency + (weight + facet) * 15 + (10 if item.id in liked else 0), 2)
         reason = "按发布时间排序"
         if item.source_name == "Valve · Steam":
             score -= 40
@@ -80,6 +100,10 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
             reason = "该主题收到过没兴趣反馈，排序已下调"
         elif weight > 0:
             reason = "你对该主题表达过兴趣"
+        if facet < 0:
+            reason = "根据你对这类内容或来源的反馈下调"
+        elif facet > 0:
+            reason = "根据你对这类内容或来源的兴趣上调"
         rows.append(
             {
                 "id": item.id,
@@ -97,6 +121,8 @@ def ranked_items(db: Session, user_id: str, limit: int = 50) -> list[dict]:
                 "event_key": item.event_key,
                 "score": score,
                 "reason": reason,
+                "content_kind": kind,
+                "content_kind_label": KIND_LABELS[kind],
             }
         )
     # Stable sorting preserves the database's recency order when scores tie.
