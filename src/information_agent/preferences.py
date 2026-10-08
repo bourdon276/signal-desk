@@ -2,6 +2,8 @@
 
 import re
 
+from information_agent.news_quality import is_prediction
+
 REASONS = {"content_type", "source", "hide_only"}
 KIND_LABELS = {
     "game_update": "版本更新",
@@ -12,6 +14,7 @@ KIND_LABELS = {
     "governance": "公司治理公告",
     "stock_notice": "其他股票公告",
     "team_news": "战队新闻",
+    "prediction": "赛事预测与赔率",
     "other": "其他资讯",
 }
 
@@ -27,6 +30,8 @@ def content_kind(item) -> str:
         if re.search(r"董事会|监事会|股东大会|公司章程|治理|board meeting", text):
             return "governance"
         return "stock_notice"
+    if (item.watch_id.startswith("team:cs2:") or "战队新闻" in item.source_name) and is_prediction(item.title):
+        return "prediction"
     if item.source_name == "Valve · Steam" or re.search(r"patch notes|counter-strike 2 update|版本更新|更新日志", text):
         return "game_update"
     if re.search(r"\b(roster|transfer|signs?|benched|joins?|departs?|lineup)\b|转会|阵容|离队|加盟", text):

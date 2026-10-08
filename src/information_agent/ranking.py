@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from information_agent.freshness import recent_filter, view_filter
 from information_agent.models import Feedback, Item, Reading
+from information_agent.news_quality import news_exclusion
 from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
 from information_agent.preferences import KIND_LABELS, REASONS, content_kind, preference_key
 from information_agent.query_policy import display_title
@@ -17,6 +18,7 @@ def ranked_items(
     *,
     view: str = "all",
     recent_only: bool = True,
+    apply_quality: bool = True,
     watch_id: str | None = None,
     diagnostics: dict | None = None,
 ) -> list[dict]:
@@ -26,6 +28,7 @@ def ranked_items(
             candidates=0,
             hidden_not_interested=0,
             hidden_duplicate=0,
+            quality_excluded=0,
             eligible_count=0,
             unread_count=0,
             returned_count=0,
@@ -54,6 +57,11 @@ def ranked_items(
     items = [item for item in items if matches(item, candidate_watches, candidate_topics)]
     if diagnostics is not None:
         diagnostics["candidates"] = len(items)
+    if apply_quality:
+        qualified = [item for item in items if not news_exclusion(item.title, item.watch_id, item.source_name)]
+        if diagnostics is not None:
+            diagnostics["quality_excluded"] = len(items) - len(qualified)
+        items = qualified
     read_ids = set(db.scalars(select(Reading.item_id).where(Reading.user_id == user_id)))
     feedback = list(
         db.scalars(

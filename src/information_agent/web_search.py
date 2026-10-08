@@ -22,13 +22,14 @@ from information_agent.ingest_common import safe_link, store_item
 from information_agent.ingest_fed import brief_text
 from information_agent.ingest_team_news import mentions_team
 from information_agent.models import AgentRun, Item, SearchBudget, SearchCache, Topic, Watch, now_utc
+from information_agent.news_quality import news_exclusion
 from information_agent.personalization import user_scope
 from information_agent.search_provider import configured, provider
 
 KIND = "web_news_search_sync"
 FOCUSES = {"recent", "roster", "interview", "financial"}
 TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg"]
-SEARCH_POLICY_VERSION = "team-news-v2"
+SEARCH_POLICY_VERSION = "team-news-v3-quality"
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 
 
@@ -126,6 +127,9 @@ def normalize_result(row, target, domains, now):
         if not matched and not (known_name and known_name in text):
             return None, "entity_mismatch"
     else:
+        excluded = news_exclusion(title, target["watch_id"], "战队新闻")
+        if excluded:
+            return None, excluded
         if not mentions_team(text, target["name"]):
             return None, "entity_mismatch"
         hltv = host == "hltv.org" or host.endswith(".hltv.org")

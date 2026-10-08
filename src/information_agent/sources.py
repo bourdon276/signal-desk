@@ -12,6 +12,7 @@ from information_agent.ingest_cninfo import PREFIX, configured
 from information_agent.ingest_pandascore import KIND as PANDASCORE_KIND
 from information_agent.ingest_pandascore import configured as pandascore_configured
 from information_agent.models import AgentRun, Item, now_utc
+from information_agent.news_quality import news_exclusion
 from information_agent.personalization import candidate_filter, matches, user_scope
 from information_agent.search_provider import configured as search_configured
 
@@ -170,6 +171,9 @@ def coverage(db, user_id):
             else next((t[6:] for t in terms if re.fullmatch(r"stock:[0-9]{6}", t)), None)
         )
         found = [r for r in rows if watch_id in matches(r, enabled, topics)]
+        qualified = [r for r in found if not news_exclusion(r.title, r.watch_id, r.source_name)]
+        quality_excluded = len(found) - len(qualified)
+        found = qualified
         automatic_found = any(r.ingestion_mode in {"rss", "api"} for r in found)
         if code:
             auto = configured()
@@ -221,6 +225,7 @@ def coverage(db, user_id):
                 "watch_id": watch_id,
                 "automatic": auto,
                 "matched_count": len(found),
+                "quality_excluded_count": quality_excluded,
                 "news_count": sum(r.source_name != MATCH_SOURCE for r in found),
                 "match_count": sum(r.source_name == MATCH_SOURCE for r in found),
                 "count_limit": 500,

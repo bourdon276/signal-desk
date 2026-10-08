@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import timedelta
 from threading import Lock
 
 import feedparser
@@ -13,6 +14,7 @@ from information_agent.ingest_common import download, safe_link, store_item
 from information_agent.ingest_fed import brief_text, published_at
 from information_agent.ingest_pandascore import watched_teams
 from information_agent.models import AgentRun, now_utc
+from information_agent.news_quality import news_exclusion
 
 KIND = "cs2_team_news_sync"
 FEED_URL = "https://esportsinsider.com/feed?category_name=counter-strike"
@@ -42,17 +44,20 @@ def sync() -> dict:
                 parsed = feedparser.parse(download(client, FEED_URL))
             if not parsed.entries:
                 raise ValueError("RSS has no usable entries")
-            stats = {"entries": len(parsed.entries), "matched": 0, "created": 0, "skipped": 0}
+            stats = {"entries": len(parsed.entries), "matched": 0, "created": 0, "skipped": 0, "quality_excluded": 0}
             for entry in parsed.entries[:100]:
                 title = brief_text(entry.get("title", ""))
                 text = title + " " + brief_text(entry.get("summary", ""))
                 url = safe_link(entry.get("link", ""), {"esportsinsider.com", "www.esportsinsider.com"})
                 stamp = published_at(entry)
-                if not url or not title or stamp is None or stamp > now_utc():
+                if not url or not title or stamp is None or not now_utc() - timedelta(days=30) <= stamp <= now_utc():
                     stats["skipped"] += 1
                     continue
                 for marker, name in teams.items():
                     if not mentions_team(text, name):
+                        continue
+                    if news_exclusion(title, marker, "Esports Insider · 战队新闻"):
+                        stats["quality_excluded"] += 1
                         continue
                     stats["matched"] += 1
                     stats["created"] += store_item(
