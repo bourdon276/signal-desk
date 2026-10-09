@@ -51,3 +51,7 @@
 两个来源内容高度重合，很可能是同一采访的原文与转载。回答写“两则”只能理解为2条来源记录，不能据此宣称2次独立采访。跨来源事件去重仍待完善。巴西页面日期为当地10月8日，统一北京时间为10月9日；日期差异不证明采访不同。
 
 原文：[Dust2 Brasil](https://www.dust2.com.br/noticias/78712/donk-temos-a-confianca-de-que-ainda-podemos-vencer-a-pro-league)、[完美世界](https://news.wmpvp.com/news.html?id=304545&gameTypeStr=2)。原始个人导出不公开。
+
+## 后续事件分组实现（待线上验收）
+
+完美公开详情正文已核实Dust2.br采访归属；这对原文/转载加入已审阅映射。列表折叠、保留引用来源，模型工具返回event_key并记录event_count；不是通用跨语言去重。新增5项离线回归，累计29/29通过，真实模型调用0。新代码部署与真实合并回答待验收，Q01取证链路通过不等于此新增功能已通过。见[复盘33](../retrospectives/33-event-grouping.md)。

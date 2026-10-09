@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from information_agent.event_identity import event_identity, group_rows
 from information_agent.freshness import recent_filter, view_filter
 from information_agent.models import Feedback, Item, Reading
 from information_agent.news_quality import news_exclusion
@@ -22,6 +23,7 @@ def ranked_items(
     apply_quality: bool = True,
     watch_id: str | None = None,
     diagnostics: dict | None = None,
+    group_events: bool = True,
 ) -> list[dict]:
     watch_ids, topics = user_scope(db, user_id)
     if diagnostics is not None:
@@ -37,6 +39,7 @@ def ranked_items(
             candidate_limit_reached=False,
             omitted_by_limit=0,
             hiding_feedback=[],
+            collapsed_sources=0,
         )
     if not watch_ids or (watch_id is not None and watch_id not in watch_ids):
         return []
@@ -85,6 +88,7 @@ def ranked_items(
     if missing_ids:
         old_items = db.scalars(select(Item).where(Item.id.in_(missing_ids)))
         item_by_id.update({item.id: item for item in old_items})
+    identities = {key: event_identity(item) for key, item in item_by_id.items()}
     hidden_events: set[str] = set()
     hidden_items: set[str] = set()
     watch_weight = dict.fromkeys(watch_ids, 0)
@@ -110,7 +114,7 @@ def ranked_items(
                     facet_weight[key] = max(-3, min(3, facet_weight.get(key, 0) + direction))
             continue
         if event.action == "duplicate":
-            hidden_events.add(item.event_key)
+            hidden_events.add(identities[item.id][0])
         elif event.action == "not_interested":
             for target in matched:
                 watch_weight[target] = max(-3, watch_weight[target] - 1)
@@ -127,7 +131,7 @@ def ranked_items(
             if diagnostics is not None:
                 diagnostics["hidden_not_interested"] += 1
             continue
-        if item.event_key in hidden_events:
+        if identities[item.id][0] in hidden_events:
             if diagnostics is not None:
                 diagnostics["hidden_duplicate"] += 1
             continue
@@ -171,7 +175,8 @@ def ranked_items(
                 "source_type": item.source_type,
                 "ingestion_mode": item.ingestion_mode,
                 "published_at": item.published_at.isoformat() if item.published_at else None,
-                "event_key": item.event_key,
+                "event_key": identities[item.id][0],
+                "event_group_basis": identities[item.id][1],
                 "score": score,
                 "reason": reason,
                 "content_kind": kind,
@@ -180,16 +185,20 @@ def ranked_items(
         )
     # Stable sorting preserves the database's recency order when scores tie.
     rows.sort(key=lambda row: -row["score"])
+    raw_count = len(rows)
+    if group_events:
+        rows = group_rows(rows)
     if diagnostics is not None:
+        diagnostics["collapsed_sources"] = raw_count - len(rows)
         blocked_ids = {item.id for item in items if item.id in hidden_items}
-        blocked_events = {item.event_key for item in items if item.event_key in hidden_events}
+        blocked_events = {identities[item.id][0] for item in items if identities[item.id][0] in hidden_events}
         diagnostics["hiding_feedback"] = [
             {"id": event.id, "action": event.action, "title": item_by_id[event.item_id].title[:200]}
             for event in reversed(feedback)
             if event.item_id in item_by_id
             and (
                 (event.action == "not_interested" and event.item_id in blocked_ids)
-                or (event.action == "duplicate" and item_by_id[event.item_id].event_key in blocked_events)
+                or (event.action == "duplicate" and identities[event.item_id][0] in blocked_events)
             )
         ][:20]
         diagnostics.update(

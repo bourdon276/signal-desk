@@ -9,6 +9,7 @@ from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 
 from information_agent.db import SessionLocal
+from information_agent.event_identity import event_identity
 from information_agent.models import Item
 from information_agent.personalization import article_url, matches, user_scope
 from information_agent.query_policy import display_title
@@ -68,7 +69,7 @@ class SearchItems(Tool):
         with SessionLocal() as db:
             if self.news_kind != "all":
                 news_kind, view = self.news_kind, "news"
-            items = ranked_items(db, self.user_id, limit=500, view=view, news_kind=news_kind)
+            items = ranked_items(db, self.user_id, limit=500, view=view, news_kind=news_kind, group_events=False)
             if self.since is not None or self.until is not None:
 
                 def in_window(item):
@@ -97,6 +98,8 @@ class SearchItems(Tool):
                     "source_name": item["source_name"],
                     "ingestion_mode": item["ingestion_mode"],
                     "content_kind": item["content_kind"],
+                    "event_key": item["event_key"],
+                    "event_group_basis": item["event_group_basis"],
                 }
                 for item in items[:limit]
             ]
@@ -135,6 +138,8 @@ class GetEvidence(Tool):
                 return None
             return {
                 "id": item.id,
+                "event_key": event_identity(item)[0],
+                "event_group_basis": event_identity(item)[1],
                 "title": display_title(item.title, item.source_name)[:200],
                 "summary": item.summary[:500],
                 "url": article_url(item),
@@ -196,6 +201,7 @@ class SearchNews(Tool):
                 db,
                 self.user_id,
                 limit=500,
+                group_events=False,
                 view="news",
                 watch_id=watch_id,
                 news_kind=focus if focus in {"interview", "roster", "financial"} else "all",

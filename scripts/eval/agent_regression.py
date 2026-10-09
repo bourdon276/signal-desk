@@ -255,6 +255,104 @@ async def evaluate():
             "passed": [r["id"] for r in selected] == [interview_id] and selected[0]["content_kind"] == "interview",
         }
     )
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from information_agent.event_identity import event_identity, group_rows
+
+    def news(url, title="A sufficiently long exact interview headline", watch_id="team:cs2:spirit", stamp=None):
+        return SimpleNamespace(
+            canonical_url=url,
+            title=title,
+            watch_id=watch_id,
+            source_name="Synthetic · 战队新闻",
+            published_at=stamp or now_utc(),
+            event_key=url,
+        )
+
+    pw = news("https://news.wmpvp.com/news.html?gameTypeStr=2&id=304545", "不同中文标题")
+    dust = news(
+        "https://www.dust2.com.br/noticias/78712/donk-temos-a-confianca-de-que-ainda-podemos-vencer-a-pro-league",
+        "Different Portuguese title",
+    )
+    unrelated = news("https://www.dust2.com.br/noticias/78713/another-interview", "Other interview")
+    rows.append(
+        {
+            "case": "audited_cross_language_reprint_pair",
+            "passed": event_identity(pw)[0] == event_identity(dust)[0]
+            and event_identity(dust)[0] != event_identity(unrelated)[0],
+        }
+    )
+    stamp = now_utc()
+    a = news("https://example.invalid/a", stamp=stamp)
+    b = news("https://example.invalid/b", stamp=stamp)
+    c = news("https://example.invalid/c", stamp=stamp + timedelta(days=1))
+    d = news("https://example.invalid/d", watch_id="team:cs2:other", stamp=stamp)
+    rows.append(
+        {
+            "case": "exact_title_group_object_date_boundaries",
+            "passed": event_identity(a)[0] == event_identity(b)[0]
+            and event_identity(a)[0] != event_identity(c)[0]
+            and event_identity(a)[0] != event_identity(d)[0],
+        }
+    )
+
+    def row(key, read):
+        return {
+            "id": key,
+            "event_key": "one-event",
+            "is_read": read,
+            "title": key,
+            "url": "https://example.invalid/" + key,
+            "source_name": "Synthetic",
+            "published_at": stamp.isoformat(),
+        }
+
+    grouped = group_rows([row("read", True), row("unread", False)])
+    rows.append(
+        {
+            "case": "event_group_preserves_unread_and_source_links",
+            "passed": len(grouped) == 1
+            and grouped[0]["id"] == "unread"
+            and grouped[0]["source_count"] == 2
+            and grouped[0]["related_sources"][0]["id"] == "read",
+        }
+    )
+    with SessionLocal() as db:
+        grouping_user = User(email="grouping@example.invalid", password_hash="synthetic")
+        db.add(grouping_user)
+        db.flush()
+        db.add(Watch(user_id=grouping_user.id, watch_id="team:cs2:spirit"))
+        for metadata in (pw, dust):
+            db.add(
+                Item(
+                    watch_id="team:cs2:spirit",
+                    canonical_url=metadata.canonical_url,
+                    title=metadata.title,
+                    source_name="完美世界电竞 · 战队采访",
+                    source_type="media",
+                    ingestion_mode="manual",
+                    event_key=metadata.event_key,
+                    published_at=stamp,
+                )
+            )
+        db.commit()
+        grouped_rows = ranked_items(db, grouping_user.id)
+        raw_rows = ranked_items(db, grouping_user.id, group_events=False)
+        rows.append(
+            {
+                "case": "feed_groups_but_tools_keep_two_records",
+                "passed": len(grouped_rows) == 1 and grouped_rows[0]["source_count"] == 2 and len(raw_rows) == 2,
+            }
+        )
+        db.add(Feedback(user_id=grouping_user.id, item_id=raw_rows[0]["id"], action="duplicate"))
+        db.commit()
+        rows.append(
+            {
+                "case": "duplicate_feedback_covers_verified_reprint_event",
+                "passed": not ranked_items(db, grouping_user.id) and bool(ranked_items(db, uid)),
+            }
+        )
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,
