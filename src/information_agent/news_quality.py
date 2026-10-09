@@ -13,6 +13,11 @@ def is_prediction(title: str) -> bool:
 
 
 def news_exclusion(title: str, watch_id: str, source_name: str) -> str | None:
+    if (
+        "epaper.stcn.com" in source_name
+        and title.strip() == "证券时报电子报实时通过手机APP、网站免费阅读重大财经新闻资讯及上市公司公告"
+    ):
+        return "generic_page_title"
     if source_name == "PandaScore · CS2 赛事数据":
         return None
     if (watch_id.startswith("team:cs2:") or "战队新闻" in source_name) and is_prediction(title):

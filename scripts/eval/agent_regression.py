@@ -103,6 +103,11 @@ async def evaluate():
         [search, response(answer={"answer": "none"})],
         "evidence_not_fetched",
     )
+    parallel_search = [
+        tool("search_items", {"limit": 1}),
+        {**tool("search_items", {"limit": 1}), "id": "second-search"},
+    ]
+    await scenario("same_batch_repeat_search_preserves_evidence_budget", [response(parallel_search), evidence, final])
     captured_definitions = []
     sequence = iter([search, evidence, final])
 
@@ -353,6 +358,17 @@ async def evaluate():
                 "passed": not ranked_items(db, grouping_user.id) and bool(ranked_items(db, uid)),
             }
         )
+    from information_agent.news_quality import news_exclusion
+
+    generic_title = "证券时报电子报实时通过手机APP、网站免费阅读重大财经新闻资讯及上市公司公告"
+    rows.append(
+        {
+            "case": "generic_stock_page_title_excluded",
+            "passed": news_exclusion(generic_title, "stock:002491", "epaper.stcn.com · 股票资讯")
+            == "generic_page_title"
+            and news_exclusion("通鼎互联中标采购项目", "stock:002491", "epaper.stcn.com · 股票资讯") is None,
+        }
+    )
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,

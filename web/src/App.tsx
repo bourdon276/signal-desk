@@ -24,7 +24,7 @@ async function api<T>(path: string, token = '', options?: RequestInit): Promise<
   if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `请求未完成（${response.status}），请稍后重试`)
   return data
 }
-function searchDropLabel(reason: string) { return ({ focus_mismatch: '不属于所选新闻类型', prediction_or_betting: '预测或赔率内容', entity_mismatch: '与战队或股票不匹配', missing_cs2_context: '无法确认属于CS2', missing_date: '缺少可用日期', outside_30_days: '不在近30天', missing_or_outside_date: '日期缺失或超时', not_news_article: '非新闻页面', unapproved_url: '不在允许来源', url_owned_by_other_entity: '已归入其他对象' } as Record<string, string>)[reason] || '格式不完整' }
+function searchDropLabel(reason: string) { return ({ generic_page_title: '网页通用标题，无法确认文章身份', focus_mismatch: '不属于所选新闻类型', prediction_or_betting: '预测或赔率内容', entity_mismatch: '与战队或股票不匹配', missing_cs2_context: '无法确认属于CS2', missing_date: '缺少可用日期', outside_30_days: '不在近30天', missing_or_outside_date: '日期缺失或超时', not_news_article: '非新闻页面', unapproved_url: '不在允许来源', url_owned_by_other_entity: '已归入其他对象' } as Record<string, string>)[reason] || '格式不完整' }
 function sourceLabel(status: string) { return ({ success: '同步完成', partial: '部分同步', failure: '采集失败', running: '同步中', stale: '更新延迟', not_run: '等待首次同步', not_configured: '暂无自动更新', library_filter: '匹配来源库' } as Record<string, string>)[status] || status }
 function updateTime(value: string | null) { return value ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }).format(new Date(value)) : '尚无记录' }
 function date(value: string | null) { return value ? new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(value)) : '日期未知' }
