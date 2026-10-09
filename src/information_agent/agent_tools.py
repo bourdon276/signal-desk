@@ -134,8 +134,11 @@ class GetEvidence(Tool):
 
 
 class SearchNews(Tool):
-    def __init__(self, user_id: str, since: datetime | None, until: datetime | None):
+    def __init__(
+        self, user_id: str, since: datetime | None, until: datetime | None, *, include_diagnostics: bool = False
+    ):
         self.user_id, self.since, self.until = user_id, since, until
+        self.include_diagnostics = include_diagnostics
 
     @property
     def name(self):
@@ -170,6 +173,9 @@ class SearchNews(Tool):
         if target is None:
             return {"status": "outside_supported_scope", "results": [], "search_credits": 0}
         result = await discover(target, focus, self.user_id)
+        if not self.include_diagnostics:
+            # Rejected public results aid UI debugging, not model evidence or context.
+            result = {key: value for key, value in result.items() if key != "rejected"}
         allowed_ids = set(result["results"])
         # Respect both current subscription scope and the question's local date window.
         # Filter before truncating so unrelated library items cannot crowd out discovery results.

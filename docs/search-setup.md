@@ -20,7 +20,9 @@
 
 ## 可替换的供应商
 
-`src/information_agent/search_provider.py` 定义 `SearchProvider`：输入公开对象搜索词和允许名单域名，输出标题、URL、短摘录、发布时间估计。当前实现为 Tavily basic，固定单次 1 credit 的配置。要替换供应商，新增实现并调整 `provider()` 与 `configured()`；发现流程、缓存、记忆和工具不用重写。新适配器须重新核对价格，并更新额度预留规则，不能直接沿用 1-credit 假设。
+`src/information_agent/search_provider.py` 定义 `SearchProvider`：输入公开对象搜索词、允许名单域名及 `topic` 类别，输出标题、URL、短摘录、发布时间估计。当前实现为 Tavily basic，固定单次 1 credit 的配置。CS2使用news类别，股票保留general以覆盖公告PDF。要替换供应商，新增实现并调整 `provider()` 与 `configured()`；发现流程、缓存、记忆和工具不用重写。新适配器须重新核对价格，并更新额度预留规则，不能直接沿用 1-credit 假设。
+
+2026-10-09补充：手动搜索响应包含最多8条被过滤结果的公开标题、原因、估计日期和允许名单链接（去除查询参数）；页面可展开查看。未批准的目的地不提供链接，不保存正文摘录到此诊断字段。模型工具默认不返回这些被拒结果，防止把它们作为证据。缓存键包含搜索方向和策略版本，类别变更后不复用旧策略结果。Tavily类别与basic计费依据见[官方接口说明](https://docs.tavily.com/documentation/api-reference/endpoint/search)。
 
 RSS、现有 PandaScore 与股票接口仍可独立使用，缺少搜索 Key 不影响已收录内容。
 

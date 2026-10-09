@@ -406,7 +406,7 @@ def agent_status() -> dict:
 async def search_news(payload: SearchInput, user: User = Depends(current_user)) -> dict:
     if payload.focus not in FOCUSES:
         raise HTTPException(status_code=422, detail="无效搜索类别")
-    return await SearchNews(user.id, None, None).execute(payload.watch_id, payload.focus)
+    return await SearchNews(user.id, None, None, include_diagnostics=True).execute(payload.watch_id, payload.focus)
 
 
 @router.get("/runs/{run_id}")

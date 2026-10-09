@@ -31,7 +31,7 @@ from information_agent.search_provider import configured, provider
 KIND = "web_news_search_sync"
 FOCUSES = {"recent", "roster", "interview", "financial"}
 TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg"]
-SEARCH_POLICY_VERSION = "team-news-v4-focus"
+SEARCH_POLICY_VERSION = "team-news-v5-news-diagnostics"
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 
 
@@ -157,6 +157,25 @@ def _aware(value):
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
+def rejection_detail(row, reason: str, domains: list[str]) -> dict:
+    """Bounded public metadata only; never retain snippets or unapproved destinations."""
+    title, url, stamp = "结果格式不完整", None, None
+    if isinstance(row, dict):
+        if isinstance(row.get("title"), str):
+            title = brief_text(row["title"]) or "无标题"
+        stamp = timestamp(row.get("published_date"))
+        if isinstance(row.get("url"), str):
+            try:
+                parts = urlsplit(row["url"])
+                host = parts.hostname or ""
+                if any(host == d or host.endswith("." + d) for d in domains):
+                    # Strip tracking/auth query parameters even for approved publishers.
+                    url = safe_link(urlunsplit((parts.scheme, parts.netloc, parts.path, "", "")), {host})
+            except ValueError:
+                pass
+    return {"title": title, "url": url, "reason": reason, "published_at": stamp.isoformat() if stamp else None}
+
+
 def claim(key: str, user_id: str | None):
     now, token = now_utc(), str(uuid.uuid4())
     with SessionLocal() as db:
@@ -211,7 +230,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
     query, domains = request_spec(target, focus)
     adapter = provider()
     key = hashlib.sha256(
-        json.dumps([SEARCH_POLICY_VERSION, adapter.cache_namespace, target["watch_id"], query, domains]).encode()
+        json.dumps([SEARCH_POLICY_VERSION, adapter.cache_namespace, target["watch_id"], focus, query, domains]).encode()
     ).hexdigest()
     cached, token = claim(key, user_id)
     if cached is not None:
@@ -224,16 +243,20 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         run_id = run.id
     result = {"status": "failure", "results": [], "search_credits": 1, "cache_hit": False}
     try:
-        rows = await asyncio.wait_for(adapter.search(query, domains), timeout=15)
-        dropped, ids, created = {}, [], 0
+        # Sports news uses the provider's article-oriented index; stock PDFs retain general search.
+        topic = "news" if target["kind"] == "team" else "general"
+        rows = (await asyncio.wait_for(adapter.search(query, domains, topic=topic), timeout=15))[:8]
+        dropped, ids, created, rejected = {}, [], 0, []
         with SessionLocal() as db:
             for row in rows:
                 values, reason = normalize_result(row, target, domains, now_utc())
                 if reason:
                     dropped[reason] = dropped.get(reason, 0) + 1
+                    rejected.append(rejection_detail(row, reason, domains))
                     continue
                 if focus in {"interview", "roster", "financial"} and content_kind(SimpleNamespace(**values)) != focus:
                     dropped["focus_mismatch"] = dropped.get("focus_mismatch", 0) + 1
+                    rejected.append(rejection_detail(row, "focus_mismatch", domains))
                     continue
                 created += int(store_item(db, **values))
                 item = db.scalar(
@@ -245,6 +268,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
                     ids.append(item.id)
                 else:
                     dropped["url_owned_by_other_entity"] = dropped.get("url_owned_by_other_entity", 0) + 1
+                    rejected.append(rejection_detail(row, "url_owned_by_other_entity", domains))
             db.commit()
         result.update(
             status="success",
@@ -253,6 +277,8 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
             matched=len(set(ids)),
             created=created,
             dropped=dropped,
+            rejected=rejected,
+            search_topic=topic,
         )
     except asyncio.CancelledError:
         result["error_type"] = "cancelled"

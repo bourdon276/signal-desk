@@ -11,16 +11,18 @@ from information_agent.config import settings
 class SearchProvider(Protocol):
     cache_namespace: str
 
-    async def search(self, query: str, domains: list[str]) -> list[dict]: ...
+    async def search(self, query: str, domains: list[str], *, topic: str = "general") -> list[dict]: ...
 
 
 class TavilyProvider:
-    cache_namespace = "tavily-basic-v1"
+    cache_namespace = "tavily-basic-v2-topic"
 
-    async def search(self, query: str, domains: list[str]) -> list[dict]:
+    async def search(self, query: str, domains: list[str], *, topic: str = "general") -> list[dict]:
+        if topic not in {"general", "news"}:
+            raise ValueError("unsupported_search_topic")
         payload = {
             "query": query,
-            "topic": "general",
+            "topic": topic,
             "search_depth": "basic",
             "auto_parameters": False,
             "max_results": 8,
