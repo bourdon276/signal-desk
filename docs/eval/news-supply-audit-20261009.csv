@@ -1,0 +1,8 @@
+sample_id,watch_id,publisher_calendar_date,manual_content_kind,expected_policy_on_20261009,url,live_retrieval_status
+N01,team:cs2:team-spirit,2026-10-07,team_news,eligible_recent_not_interview,https://www.hltv.org/news/45672/spirit-secure-last-spot-in-the-spodek-over-m80,not_observed
+N02,team:cs2:team-spirit,2026-10-05,team_news,eligible_recent_not_interview,https://www.hltv.org/news/45644/mouz-hand-spirit-first-swiss-group-stage-loss-in-668-days-to-make-epl-playoffs,not_observed
+N03,stock:002491,2026-09-28,stock_notice,eligible_recent_not_financial,https://static.cninfo.com.cn/finalpage/2026-09-28/1225582335.PDF,not_observed
+N04,stock:002491,2026-09-28,governance,eligible_recent_not_financial,https://static.cninfo.com.cn/finalpage/2026-09-28/1225582336.PDF,not_observed
+X01,team:cs2:team-spirit,2026-08-23,interview,outside_30_days,https://www.hltv.org/news/45379/donk-i-still-see-a-lot-of-things-that-i-can-improve,not_observed
+X02,team:cs2:team-spirit,2026-09-06,interview,unapproved_url_and_outside_30_days,https://blast.tv/cs/news/zont1x-i-will-not-be-able-to-be-a-top-five-player,not_observed
+X03,team:cs2:team-spirit,2026-07-16,team_news,outside_30_days,https://bo3.gg/news/pgl-revealed-the-list-of-invited-teams-for-bucharest-masters-2026,not_observed

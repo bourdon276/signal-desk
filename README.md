@@ -1,195 +1,166 @@
-# 个人资讯 Agent
+# 阅讯 · Signal Desk
 
-> MVP 开发中。2026-10-02 已部署至 Render，公网首页可访问。已收到首位朋友的体验反馈；已完成首轮 30 篇真实兴趣标注与离线反馈回放；完整操作验收与第二轮体验仍待完成。
+面向个人关注对象的资讯 Agent：订阅股票和 CS2 战队，收集近期消息，按兴趣反馈排序，使用受限模型工具调用回答问题并附上证据。
 
-## 自动来源与自己的关注
+**[在线演示](https://signal-desk-demo.onrender.com/) · [源码](https://github.com/bourdon276/signal-desk) · [项目盘点](docs/project-status-20261008.md)**
 
-根据首轮体验意见，新增关注已改为对象订阅：A 股证券代码、CS2 战队名称。股票代码精确连接巨潮公告适配器；战队连接 PandaScore fixtures 适配器，`绿龙` 映射为 Team Spirit，关注赛程/进行状态/比分。线上已配置 PandaScore Token；2026-10-06 已部署按战队 ID 查询及采集统计修复（`a71cd10`）。生产同步成功解析 Spirit，收到 101 场赛事、新增入库 98 条，另 3 场因状态不支持跳过；历史列表达到 100 条上限，来源明确显示“部分同步”。登录后信息流展示仍待人工验收，详见[阶段复盘 09](docs/retrospectives/09-pandascore-ingestion.md)。股票公告仍需 CNINFO 凭据和展示许可。游戏官方公告降为历史内容，不再持续同步。
+更新：2026-10-09。已公开部署，已收到朋友体验反馈，DeepSeek 与 Tavily 已在部署实例配置。新闻供给与多用户效果仍在验收；新增关注不代表来源必然覆盖该对象。免费实例休眠后首次访问可能需要等待约一分钟。
 
-股票正式适配器已准备，**默认关闭，真实股票自动更新仍待数据账号与展示权限**；详见[配置说明](docs/stock-api-setup.md)。战队配置见[CS2 战队来源](docs/team-source-setup.md)。战队来源不等同于战队新闻文章。自动短摘录可能为英文，中文自动摘要尚未实现。[本阶段复盘](docs/retrospectives/08-entity-following.md)记录实现、来源依据、问题与验收缺口。
+## 能做什么
 
-## 首轮体验后的改版
+- 邀请注册与登录；添加六位 A 股代码或 CS2 战队名称，绿龙规范化为 Team Spirit。
+- 新闻展示近30天内容；比赛单独展示近30天记录和未来7天赛程，不用历史比分填充新闻。
+- 选择近期新闻、采访、阵容与转会；股票可选择财报与业绩。选择类型筛选库存，点击“搜索这个关注的新消息”才发起联网搜索。
+- 卡片展示概况、日期、来源、已读状态与原文链接；赛事 API 记录明确没有原文网页。
+- “感兴趣 / 少看这类 / 重复消息”持久化为反馈事件。偏好按用户、关注对象及内容类型或来源计算，可撤销。
+- 默认问答检索已入库证据；勾选模型工具问答后，模型选择工具并组织回答。可选库存不足时补搜一次。
+- 展示工具轨迹、token、估算费用、来源同步状态，以及质量过滤、类型过滤、反馈隐藏数量。
 
-项目所有者已转述一位朋友的实际体验意见，见[用户反馈迭代复盘](docs/retrospectives/06-beta-iteration.md)。新版使用“阅讯”阅读台界面：管理关注中可添加自己的股票代码或 CS2 战队；卡片直接显示概况；支持持久化已读/未读及“先读三条”。本轮对象订阅实现复盘见[阶段复盘 08](docs/retrospectives/08-entity-following.md)。存量关键词主题仍兼容读取，但不再出现在新增入口。
+### 数据来源与边界
 
-每个账号最多20个自定义关注。股票按六位证券代码精确匹配；战队按规范化实体 ID 精确匹配。通用关键词只为旧记录保留兼容，不再作为新增关注入口。战队来源仅覆盖赛程和赛果；战队官方新闻、采访和转会仍是来源缺口。当前18条手动样本附经原文核对的短概况、15条RSS使用来源摘要；概况与人工Eval标签是不同的数据，不能据此增加人工标注计数。
+| 内容 | 路径 | 当前限制 |
+| --- | --- | --- |
+| 股票新闻 | Tavily 搜索白名单媒体及公告链接 | 搜索摘录与日期未经全文核验；不能保证任意代码均有新闻 |
+| 正式股票公告 | CNINFO 适配器 | 需独立凭据与展示许可，当前未启用正式接口 |
+| CS2 战队报道 | Tavily、Esports Insider RSS | 召回有限，采访分类使用标题规则，存在漏判和误判 |
+| CS2 比赛 | PandaScore Fixtures | 来源分页和状态可能不完整；明确区分比赛与新闻 |
+| 黄金宏观背景 | 美联储 RSS | 不提供完整伦敦金新闻、实时行情或交易建议 |
+| 人工历史样本 | 经核对的链接与短概况 | 用于演示和历史评估，不冒充实时自动采集 |
 
-新版追加 `topics` 和 `readings` 两张表，启动时执行 Alembic 升级，保留已有用户、关注与反馈。个人关注和阅读记录不进入Git，也不在运行日志中输出。
+尚未实现：私有阅读源、AI周报、外部通知、完整 LoL/Valorant 自动采集、跨站语义事件归并、向量检索。真实文章验收见[新闻供给审计](docs/eval/news-supply-audit-20261009.md)。
 
-PandaScore 官方把 CS2 赛程与结果列入 Fixtures 计划，免费档标注 1000 次请求/小时且注册无需绑卡；但其现行服务条款对客户身份和网站展示有约束。阅讯是公开演示，必须先由账号持有人确认条款适用，再配置 Token。步骤见[战队来源配置](docs/team-source-setup.md)。股票接口配置见[巨潮配置说明](docs/stock-api-setup.md)。
+## 为什么不只装一个 Skill
 
-**在线演示：[Signal Desk](https://signal-desk-demo.onrender.com/)** · [GitHub 源码](https://github.com/bourdon276/signal-desk)。首次使用点击“创建账号”，填写维护者单独提供的邀请码。免费实例休眠后访问可能需要等待约一分钟。
+Skill 可以辅助个人查消息。阅讯负责持续保存多用户关注、阅读和反馈，提供浏览入口，统一采集与检索，执行日期、身份、引用和预算限制，并在失败时保留已有信息。Skill 可以调用这套服务；本项目的价值在这些可运行、可观测的产品机制。当前是受限工具调用 Agent，不是多 Agent 或自主研究系统。
 
-把股票、伦敦金与电竞资讯放进一个可追溯的信息流，并根据用户反馈调整推荐。本周目标是 10 月 7 日前做出可访问、可演示、可如实写进简历的 MVP；14 天试用等目标见[长期路线](docs/roadmap-long-term.md)。
+## 架构与技术栈
 
-## 当前范围
+```mermaid
+flowchart TD
+    A[RSS / PandaScore / 可选 CNINFO] --> B[确定性采集与规范化]
+    T[Tavily 搜索] --> B
+    B --> D[(PostgreSQL)]
+    U[React 阅读台] --> F[FastAPI 身份与范围校验]
+    F --> R[日期 / 类型 / 反馈过滤与排序]
+    D --> R
+    R --> U
+    U --> M[受限模型循环 · DeepSeek]
+    M --> N[nanobot ToolRegistry]
+    N --> S[search_items / get_evidence]
+    N --> W[可选 search_news]
+    W --> T
+    S --> D
+    M --> C[后端引用校验与检索回退]
+    C --> U
+```
 
-- 股票：通鼎互联（002491.SZ）、辉煌科技（002296.SZ）
-- 黄金：伦敦金相关资讯；首版不提供实时行情或交易建议
-- 电竞：当前优先支持 CS2 战队对象（绿龙 / Team Spirit）；LoL、无畏契约保留历史记录
-- 每周 AI 前沿简报与私有阅读源列入后续阶段
+Python 3.12、FastAPI、nanobot-ai 0.3.5 ToolRegistry、SQLAlchemy、Alembic、PostgreSQL、httpx、feedparser；React、TypeScript、Vite；Docker 与 Render。自有主机另提供 Caddy 配置。
 
-## 当前进度
+### Agent 的执行边界
 
-- 已形成[来源矩阵](docs/source_matrix.md)、[用户流程](docs/user_flow.md)、[试用预算](docs/budget.md)、[长期 Eval 协议](docs/eval/protocol.md)和[固定关键词基线](scripts/eval/baseline.py)。
-- 已准备[标注模板](data/eval/annotation_template.csv)、[试用者匿名登记表](docs/beta_recruitment.md)与[来源权限跟进清单](docs/source_permissions.md)。
-- 本地已迁移数据库，手动收录20条经核对的股票/电竞原文链接、美联储RSS同步15条。手动样本见 [`docs/demo_links.json`](docs/demo_links.json)。线上 PandaScore Token 已配置；本地开发环境与线上环境使用独立凭据。CNINFO 凭据和展示权限仍未配置。
-- 已实现个人关注、反馈、撤销、规则排序、React 页面，以及基于 nanobot Tool 接口的受限证据检索。已接入受限模型工具循环，默认走确定性证据检索，用户勾选后才调用模型。
-- 本周先争取 1–2 位非开发者实际使用。用户表示已有 5 位愿意参与，尚待匿名核实。已完成 [30 篇真实兴趣判断与反馈回放](docs/eval/preference-results-20261008.md)，其中 28 条明确判断、2 条无法判断；新闻事实核验与实体相关性标注仍待完成。
-- 首轮试用的服务器、模型和数据 API 总预算上限为 ¥200/月。
+- 模型默认最多3轮；允许补搜时最多4轮；工具总数最多6次，只补搜一个关注对象一次。
+- 工具身份由后端登录态绑定，模型不能指定其他用户。检索最多5条，证据摘要最多500字。
+- 模型请求序列化上限16KB、输出上限800 tokens、问答总超时40秒。
+- 工具内容作为不可信数据处理；没有任意 URL、Shell、文件写入工具。后端用已取得的证据重建链接。
+- 缺证据不推断外部没有新闻；无效引用、超时或模型失败时回退检索，并展示原因。
 
-## 本地环境
+[工程设计与面试说明](docs/engineering-notes.md)详述上下文、记忆、安全、成本与失败案例。
 
-要求 Python 3.12、[uv](https://docs.astral.sh/uv/) 和 Docker 兼容运行时。在项目目录运行：
+## 本地启动
+
+要求 Python 3.12、uv、Node.js/npm 和 Docker 兼容运行时。
 
 ```bash
-# 如果使用 Colima 作为本机 Docker 运行时，先启动它；Docker Desktop 用户跳过此行。
-colima start
 uv sync
 cp .env.example .env
-# 编辑 .env：让 DATABASE_URL 与 POSTGRES_PASSWORD 使用同一条本机口令，并替换 APP_SECRET、ADMIN_TOKEN。
+```
+
+编辑 `.env`：让 `DATABASE_URL` 与 `POSTGRES_PASSWORD` 使用同一条本机口令，替换 `APP_SECRET`、`ADMIN_TOKEN`。Colima 用户先运行 `colima start`。
+
+```bash
 docker compose up -d db
 uv run alembic upgrade head
 uv run python -m information_agent.ingest_fed
+# 可选：导入明确标为人工收录的历史演示链接
 uv run python scripts/import_demo_links.py
-cd web && npm ci && npm run build && cd ..
+npm --prefix web ci
+npm --prefix web run build
 uv run uvicorn information_agent.main:app --reload
 ```
 
-然后访问 `http://127.0.0.1:8000/`；进程健康检查为 `/health`，数据库就绪检查为 `/ready`，API 文档为 `/docs`。首次注册只需邮箱和至少 10 位密码；公开部署时需邀请码。登录后选择已有关注，或在“管理关注”添加 A 股代码 / CS2 战队对象；阅读卡片概况，可标为已读、提交反馈，并在“最近反馈”中撤销。`/api/ask` 只返回已入库证据，不调用付费模型。本地 PostgreSQL 数据在 Docker 命名卷中。`.env` 口令只用于本机开发，不可复用于公开部署。
+访问 `http://127.0.0.1:8000/`。`/health` 检查进程，`/ready` 检查数据库，`/docs` 为 API 文档。公开实例注册需要维护者单独提供的邀请码。
 
-多个来源同步也可通过 `uv run python -m information_agent.sync_worker` 每小时运行：美联储 RSS、可选的 PandaScore CS2 赛程与结果、可选巨潮公告。PandaScore Token 未配置时不请求 API；配置后会按战队 ID 筛选赛程，并把每次的解析、匹配、入库和丢弃数量显示在来源状态中；达到接口单页上限会提示可能不完整。CNINFO 需 Token 与许可开关同时启用。Valve News 不再持续同步。若请求失败，已有条目仍可阅读，`/api/sources` 会显示各来源失败、延迟或未配置状态；`/api/coverage` 返回当前用户关注的覆盖说明。手动收录保存标题、时间、原文 URL 与可选的人工核对概况；没有后台批量抓取第三方正文；管理员录入接口为 `POST /api/admin/items`，需要 `X-Admin-Token`。
+前端开发：后端运行时执行 `npm --prefix web run dev`，访问 `http://127.0.0.1:5173/`。前端修改后重新构建即可由 FastAPI 提供。
 
-### 数据流与 Agent 边界
+周期采集：`uv run python -m information_agent.sync_worker`。本地单独启动此进程；部署实例可设置 `SYNC_IN_WEB=true`。免费服务休眠期间不会持续采集。
 
-```text
-美联储 RSS / PandaScore fixtures / CNINFO（需配置）─→ 来源适配器 ─┐
-人工核对原文链接 ──────────────────────────────────────────────┴→ items（PostgreSQL）→ 个人对象关注与反馈排序 → React 信息流
-                                       search_items / get_evidence ←┘
-                                                  ↓
-                                      带原文链接的证据回答
-```
+停止数据库用 `docker compose down`，命名卷保留数据；`docker compose down -v` 会删除本地数据库。Colima 可用 `colima stop` 释放运行时资源。
 
-用户关注和反馈按账号保存在 PostgreSQL；新增“少看这类”可选同一关注对象下的内容类型、来源或只隐藏本条。“感兴趣”记录已识别内容类型的偏好；无法分类时只影响当前卡片。旧反馈保留对象级权重，“重复”隐藏相同事件键，撤销后重新计算。工具只读当前用户关注范围内的已入库记录，每次最多取 5 条；外部资讯内容不会成为可执行指令。当前事件键默认由 URL 生成，跨平台同事件去重还需要更多来源和人工事件归并。
+## 环境变量
 
-管理员可用 `GET /api/admin/runs` 携带 `X-Admin-Token` 查看最近 50 次同步与问答的运行 ID、状态、数量和错误摘要。确定性检索不产生模型费用；勾选模型问答后运行受限工具循环，记录 token、估算费用与回退原因。
+密钥仅放本机 `.env` 或 Render Environment，不提交到 Git。
 
-问答支持股票代码、LoL / Valorant 等别名，以及同一问题中的多个关注对象。工具轨迹还记录参数、耗时和结果数量；不会记录用户问题原文或登录凭据。完整设计和面试说明见[工程说明](docs/engineering-notes.md)。
+| 用途 | 设置 |
+| --- | --- |
+| 基础服务 | `DATABASE_URL`、`APP_SECRET`、`ADMIN_TOKEN`、公开部署的 `REGISTRATION_CODE` |
+| 周期同步 | `SYNC_IN_WEB=true`（部署内运行时）；独立 worker 不需此开关 |
+| 比赛来源 | `PANDASCORE_TOKEN`；[配置说明](docs/team-source-setup.md) |
+| 新闻搜索 | `SEARCH_ENABLED=true`、`TAVILY_API_KEY`；[配置说明](docs/search-setup.md) |
+| 正式股票接口 | `CNINFO_ACCESS_TOKEN`、`CNINFO_DISPLAY_ALLOWED=true`；[配置说明](docs/stock-api-setup.md) |
+| 模型 | `MODEL_ENABLED=true`、`MODEL_API_KEY`、`MODEL_BASE_URL`、`MODEL_NAME` 与非零输入/输出价格；[配置说明](docs/model-agent-setup.md) |
 
-### 评估
+模型价格按人民币/百万 tokens 配置；使用供应商当时报价。默认模型上限为月¥50、日¥3、单次预留¥0.5，每用户每日最多10次。费用为 token 与配置价格的估算，不等同供应商账单。
 
-首批标注流程见 [Eval 数据说明](data/eval/README.md)。在项目根目录执行 `uv run python scripts/eval/prepare.py` 导出本地已入库的真实链接清单，人工填写 `data/eval/annotation_queue.csv` 后执行 `uv run python scripts/eval/report.py`。报告给出每个关注对象的关键词时间倒序基线和来源标记排序的 `P@5`、覆盖数、重复率及错误 URL；不足 5 个已判候选时写 N/A。2026-10-08 完成独立的兴趣标注：30 篇、1 位用户，10 条有效反馈用于调整排序、19 篇留出。原始前五明确想看 1 条，反馈后 3 条、另有 1 条无法判断；反馈后精确 P@5 为 N/A，范围 60%–80%，不是线上准确率或统计置信区间。详见 [首轮结果与失败案例](docs/eval/preference-results-20261008.md)。这不替代上面的新闻相关性与事实标签。
+搜索默认全站每日20、每月600 credits，每用户每日5次新请求。固定 basic 请求预留1 credit；失败也计入额度。对象共享成功缓存6小时、零结果15分钟、失败5分钟，并使用数据库租约限制并发。搜索与模型预算分别计算，项目总预算目标为¥200/月，尚未完成月度账单验收。
 
-### 开发前端
+## 部署
 
-后端在 8000 端口运行时，另一个终端进入 `web` 目录执行 `npm run dev`，访问 `http://127.0.0.1:5173/`。Vite 把 `/api` 代理到后端。修改前端后执行 `npm run build`，FastAPI 会提供新构建的页面。
+当前演示使用 Render Web + PostgreSQL。可参考 [`render.yaml`](render.yaml)、[`render-existing.yaml`](render-existing.yaml)；[Blueprint 入口](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)会先显示待创建资源。
 
-### 公开部署准备
+1. 通过 GitHub provider 连接仓库，关联 `main`；设置私密环境变量与数据库连接。
+2. 部署后确认 Render 为 Live，再查看 `/ready` 与页面版本。仅点击 Save Only 保存变量不会更新正在运行的实例。
+3. 自动部署需要仓库授权、关联分支和 On Commit 配置均生效；YAML 中 `autoDeployTrigger: commit` 本身不能证明已触发。
+4. 代码或进程配置变更需要部署；添加关注、提交反馈、采集新闻不需要部署。
 
-已有多阶段 [`Dockerfile`](Dockerfile)、[`compose.production.yaml`](compose.production.yaml) 和 [`Caddyfile`](Caddyfile)。自有主机路径需先准备域名或 HTTPS 入口，设置独立强口令、`APP_SECRET`、`ADMIN_TOKEN`、`REGISTRATION_CODE` 与 `APP_DOMAIN`，再运行 `docker compose -f compose.production.yaml up -d --build`。当前实际部署使用下方 Render 路径；备份恢复与完整试用验收仍待完成。
+只修改README或复盘时，提交消息可加 `[skip render]` 跳过自动部署；规则见[Render部署文档](https://render.com/docs/deploys#skipping-an-auto-deploy)。不应在需要上线的代码修改中使用此标记。
 
-2026-10-02 11:40（Asia/Shanghai）Render 显示 Live，公网首页实际打开成功。使用 [`render-existing.yaml`](render-existing.yaml) 创建 Oregon 免费 Web 服务，复用用户创建的免费 PostgreSQL 18 数据库 `bourdon`。用户自行完成绑卡验证和私密邀请码配置。此前版本的 Fed RSS、Steam News 与 `/ready` 均曾实际部署观察成功；旧版本股票源保持未配置。[部署限制](docs/deployment-options.md)：Web 会休眠；数据库控制台显示 **2026-11-01 到期**，须此前迁移或升级。
+免费服务休眠影响首次访问和周期采集。旧控制台记录数据库到期为2026-11-01，实际到期与计划请以当前控制台为准；备份恢复尚待验收。[部署说明](docs/deployment-options.md)。
 
-对象关注改版与 PandaScore Token 已部署。2026-10-06 15:42（Asia/Shanghai）采集修复 `a71cd10` 在 Render 显示 Live；公网 `/ready` 返回 ready，`/api/sources` 返回战队解析、101 场返回数据、98 条新增入库等统计。CNINFO 股票自动公告继续受单独授权约束。
+自有主机另提供 [`compose.production.yaml`](compose.production.yaml)、[`Caddyfile`](Caddyfile)。配置域名及独立强密钥后运行 `docker compose -f compose.production.yaml up -d --build`。
 
-[用 Render Blueprint 部署这个公开仓库](https://render.com/deploy?repo=https://github.com/bourdon276/signal-desk)。该链接会先显示待创建的资源与所需私密环境变量；实际公网地址以部署成功后控制台显示为准。
+## 评估与已取得的证据
 
-停止本地数据库：
+区分来源供给、偏好推荐、模型问答、用户操作四种验收；代码实现、静态检查和部署成功不能代替效果评估。
 
-```bash
-docker compose down
-```
-
-删除本地数据库和其中的数据：
-
-```bash
-docker compose down -v
-```
-
-本机使用 [Colima](https://github.com/abiosoft/colima) 提供 Docker 兼容容器运行时；启动和停止运行时分别使用 `colima start` 与 `colima stop`。
-
-本地环境回收资源时运行 `docker compose down` 和 `colima stop`。数据库命名卷会保留；只有明确要删除本地数据库时才运行 `docker compose down -v`。
-
-## 技术栈（初始）
-
-- Python 3.12、uv
-- nanobot-ai 0.3.5：`search_items` 和 `get_evidence` 已实现为用户限定的 Tool；完整模型循环待接
-- FastAPI、Pydantic Settings
-- SQLAlchemy、Alembic、PostgreSQL（Docker Compose 本地开发）
-- httpx、feedparser
-- PandaScore Fixtures API：可选 Token，CS2 赛程与结果
-- React、TypeScript、Vite；Caddy 用于预备的 HTTPS 部署
-
-来源适配、用户反馈与记忆、Eval、外部部署等状态以计划和各阶段复盘为准。实现后会把真实部署地址、使用数据、评估结果和局限补进 README。
-
-## 阶段复盘与交付状态
-
-| 小项目 | 复盘 | 当前状态 |
+| 证据 | 当前结果 | 不能推断什么 |
 | --- | --- | --- |
-| 0 范围与来源门 | [复盘 0](docs/retrospectives/00-scope-eval.md) | 已完成 |
-| 1 数据与来源 | [复盘 1](docs/retrospectives/01-ingestion.md) | 实现已交付，场景验收待补 |
-| 2 推荐与记忆 | [复盘 2](docs/retrospectives/02-feedback.md) | 实现已交付，场景验收待补 |
-| 3 Web 闭环 | [复盘 3](docs/retrospectives/03-web.md) | 构建完成，实际用户和手机验收待补 |
-| 4 Agent 与 Eval | [进度复盘 4](docs/retrospectives/04-agent-eval.md) | 工具与报告脚本就绪，首轮兴趣标注与回放完成；事实评估待完成 |
-| 5 部署与试用 | [部署复盘](docs/retrospectives/05-deployment-user.md) / [试用步骤](docs/beta-5-minute-guide.md) | 公网部署成功；已有首轮朋友反馈，完整验收待完成 |
-| 6 最终交付 | [工程说明](docs/engineering-notes.md) | README 已更新，最终指标和演示待补 |
+| 公网部署与朋友反馈 | 有真实访问入口及首位朋友反馈 | 不等于5位活跃用户或完成14天试用 |
+| 真实模型轨迹 | 一个通鼎互联样例：3次模型、6次工具、5条证据，估算¥0.01785 | 不是平均费用、事实准确率或完整问答验收 |
+| 兴趣标注与回放 | 1位用户30篇历史资讯：6想看、22不想看、2未知；11篇训练部分、19篇留出，10条有效反馈 | 不代表当前线上规则或长期多用户效果 |
+| 留出前五 | 明确想看1条→3条，反馈后另有1条未知；精确P@5为N/A，界限60%–80% | 该界限不是统计置信区间，不能写“准确率提升40%” |
+| 历史模拟模型检查 | 18个脚本场景曾通过 | 不代表真实模型表现，也不是最新规则全量回归 |
+| 新闻供给审计 | 已核查近期原文与过期对照；线上召回记录待补 | 手工找到报道不代表Tavily已返回或项目已入库 |
 
-2026-10-02 已完成 Python Ruff 静态检查、TypeScript/Vite 构建和本地 Docker 镜像构建。尚未运行功能场景验收，不据此声称账号隔离、推荐效果或生产可靠性已通过验证。
+[首轮偏好报告](docs/eval/preference-results-20261008.md) · [文章供给审计](docs/eval/news-supply-audit-20261009.md) · [评估协议](docs/eval/protocol.md) · [标注流程](data/eval/README.md)。历史样本回放保留历史窗口与质量规则的独立边界；新规则效果需要独立数据。
 
-### 2026-10-06 后续修复
+## 观测与调试
 
-API 比赛 slug 被错误拼成原文网页，导致 404；已修复展示与引用逻辑，保留旧去重标识。新增 Esports Insider Counter-Strike RSS 战队新闻索引，范围有限，生产状态见[复盘 10](docs/retrospectives/10-links-team-news.md)。
+`/api/sources` 提供公开的来源汇总；`/api/coverage`、`/api/feed` 按登录用户返回覆盖及列表诊断。列表统计分别解释候选、类型/质量过滤、反馈隐藏、最终展示数量。隐藏反馈可在页面撤销。
 
-[简历描述与面试准备](docs/resume-agent-project.md)区分已实现的工具编排/反馈记忆与尚未实现的模型自主循环，不提供未经测量的效果指标。
+问答运行记录包含 run_id、工具参数、耗时、结果数、回退原因与估算费用。管理员通过 `GET /api/admin/runs` 和 `X-Admin-Token` 查看同步及问答记录；轨迹不记录原始问题、密码或完整反馈历史。用户可查看自己的问答工具与费用记录。
 
-本轮修复 `86af669` 已于 2026-10-06 15:54（北京时间）部署成功。新闻 RSS 生产首次同步读取 10 篇、匹配绿龙 0 篇；来源接通不等于战队新闻覆盖完成。
+已遇到的问题：全局分页漏掉目标战队、赛事 API 标识被当作网页导致404、采访方向展示综合新闻、旧反馈隐藏全部候选。分别通过战队 ID 查询、取消伪原文链接、类型一致过滤、范围内诊断与撤销入口处理。[阶段复盘](docs/retrospectives/)保留当时问题、修复和验收限制。
 
-## 受限模型 Agent 与 Eval（2026-10-06）
+## 交付状态与下一步
 
-新增模型自主选择检索/证据工具的消息循环，最多 3 轮、6 次只读工具调用；后端绑定用户身份，从已取得证据重建引用。初始版本默认关闭模型；后续已配置供应商并由用户提供真实调用轨迹，见本节末尾。默认问答仍是确定性检索。
+| 小项目 | 状态与资料 |
+| --- | --- |
+| 0 范围与预算 | 已建立；[复盘0](docs/retrospectives/00-scope-eval.md) |
+| 1 数据来源 | 采集与存储已实现，文章覆盖待验收；[复盘1](docs/retrospectives/01-ingestion.md) |
+| 2 推荐记忆 | 持久化、细分偏好与撤销已实现，第二轮效果待评估；[复盘2](docs/retrospectives/02-feedback.md) |
+| 3 Web 闭环 | 公开运行并按反馈迭代，完整多用户/手机流程待验收；[复盘3](docs/retrospectives/03-web.md) |
+| 4 Agent 与 Eval | 模型已真实运行，首轮偏好回放完成，真实问答评估待补；[复盘11](docs/retrospectives/11-model-agent-eval.md) |
+| 5 部署试用 | 部署完成，2–3人完整操作及运维验收待补；[复盘5](docs/retrospectives/05-deployment-user.md) |
+| 6 最终交付 | 本文已统一当前事实；演示、最终Eval与运维记录待补 |
 
-勾选模型工具问答后才发送本次问题、关注名称与短证据；失败回退，页面显示回答模式和本人运行轨迹。预算表原子预留月/日额度，默认模型预算 ¥50/月、¥3/日，每用户最多 10 次/日；按配置价格估算，不等于供应商账单。
-
-- [模型配置、边界与验收](docs/model-agent-setup.md)
-- [阶段复盘 11](docs/retrospectives/11-model-agent-eval.md)
-- 离线回归：`uv run python scripts/eval/agent_regression.py`，使用临时合成数据库和脚本模型，18 个场景已通过。真实模型调用 0，不能当作模型准确率。
-- 本地人工标注表：`data/eval/20261006/annotation_queue.csv`，65 条已有文章链接、130 个空白判断，不提交到仓库。这份相关性表仍为空；另有 30 篇兴趣标注，见 [偏好回放报告](docs/eval/preference-results-20261008.md)。
-- 报告保留原始前五排序；没有全部标注时 P@5 为 N/A，不过滤未标注候选后计算。
-
-已接入真实模型并完成首轮兴趣标注；仍需至少 10 个真实模型问答案例及新闻事实与相关性评估。报价、事实支持率与偏好效果只按实测填写。
-
-2026-10-06 16:18（北京时间）受限模型与 Eval 版本 `7a14a57` 已部署；重试后健康检查正常。模型接口配置状态为 false，真实模型验收尚待完成。
-
-### 真实模型试用修复
-
-真实通鼎互联调用已由用户提供运行记录：3次模型调用、6次工具、5条证据，估算¥0.01785；未据此声称事实准确率。“最近”默认近7天，今天按上海日期；旧待赛0:0展示已修复。官方DeepSeek使用非思考工具调用模式。私人记录请求明确拒绝，赛事API引用展示来源记录。详见 [复盘12](docs/retrospectives/12-real-model-fixes.md)。
-
-## 细分偏好记忆（2026-10-08，本地待部署）
-
-根据首轮真实兴趣标注暴露的问题，新增内容类型与来源维度，避免把不喜欢版本更新解释为不喜欢整个 CS2 主题。分类使用标题规则，不新增模型费用；偏好按用户与关注对象隔离、限幅、可撤销。旧反馈保持兼容。前端构建和静态检查通过，功能验收与第二批独立效果评估尚未完成。新闻面板匹配为零时提示覆盖不足；本轮未启用新的新闻供应商，绿龙新闻覆盖仍有缺口。详见 [复盘 15](docs/retrospectives/15-preference-granularity.md)。
-
-## 搜索发现路径（本地代码已接入，默认关闭）
-
-固定来源供给不足时，新增可替换的 `SearchProvider`，当前提供 Tavily basic 适配器。它负责发现新闻链接，DeepSeek 继续选择工具和总结。无需现在注册或付费；未配置 Key 时保留已有 RSS、赛事接口和库存检索。
-
-- 支持关注的 A 股和 CS2 战队；固定公开对象搜索词、允许名单域名、近30天日期筛选，URL 去重后进入个人排序。
-- 页面可手动搜索单个关注，无需调用模型；模型问答可选库存不足时补搜一次，仍须取得证据后才能引用。
-- 同一对象默认共享 6 小时缓存；全站日/月上限 20/600 credits，每用户每日最多 5 次新搜索，失败不假设免费。
-- 搜索不默认读取全文，页面明确标记未核验摘录及估计日期。模型原路径最多3轮；允许补搜时最多4轮，工具仍最多6次、问答总超时40秒。
-- 新增 Alembic `20261008_04` 迁移。静态检查、前端构建和离线迁移 SQL 生成已完成；尚未执行真实搜索、数据库在线升级或部署本版本，不声称已补齐绿龙新闻。
-
-配置、供应商替换与真实验收步骤见 [搜索说明](docs/search-setup.md)，本轮问题与解决见 [复盘16](docs/retrospectives/16-search-discovery.md)。
-
-### 搜索生产进展
-
-2026-10-08 17:25（北京时间）已部署搜索版本 `1579c38`，线上返回 `search_configured=true`。最近一次全站搜索来源记录为成功：返回5条、匹配3条、新增3条、预留1 credit，2条因对象不匹配过滤。上述“本地、默认关闭、未验证”是实现时状态；当前部署实例已由用户启用 Tavily。该汇总不说明具体对象，绿龙新闻内容、原文链接、缓存和模型补搜仍待登录后验收，不据此宣称新闻覆盖完整。
-
-### 近期消息窗口
-
-默认「新闻」栏目展示近 30 天已收录新闻；PandaScore 比赛记录移至「比赛」栏目，只保留近 30 天记录和未来 7 天赛程。「新闻和比赛」可合并查看。时间与类型在服务端候选截断前过滤，问答工具也受近期窗口约束。历史数据与反馈保留用于审计和兴趣记忆，新闻不足时不会用旧比分填充。
-
-### 自动部署
-
-`render.yaml` 使用 `autoDeployTrigger: commit`，与 Render 控制台的 On Commit 设置一致。推送到服务关联的 main 分支后自动构建上线；以 Render 的 Live 状态及线上版本为准。搜索新闻、添加关注和定时采集无需部署。
-
-战队新闻搜索可选择“近期新闻 / 阵容与转会 / 战队采访”，预测和赔率类标题会经过独立质量过滤，页面显示过滤数量。每次只搜索一个方向，不增加自动多轮请求。该规则尚待真实文章级验收，不能据此声称召回或推荐准确率已提高。
+收尾顺序：核查绿龙与一只股票的实际搜索供给 → 冻结策略并完成独立偏好与真实问答评估 → 2–3位朋友完成全流程与运维验收 → 录制2–3分钟演示并冻结简历版本。准确简历表述见[面试准备](docs/resume-agent-project.md)；延期功能见[长期路线](docs/roadmap-long-term.md)。
