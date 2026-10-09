@@ -97,6 +97,23 @@ async def evaluate():
         )
 
     await scenario("grounded_three_rounds", [search, evidence, final])
+    await scenario("repeat_search_without_evidence_denied", [search, search, final], "evidence_required")
+    await scenario(
+        "found_candidates_cannot_claim_no_evidence",
+        [search, response(answer={"answer": "none"})],
+        "evidence_not_fetched",
+    )
+    captured_definitions = []
+    sequence = iter([search, evidence, final])
+
+    async def capture_complete(client, messages, definitions, final_round):
+        captured_definitions.append([d["function"]["name"] for d in definitions])
+        return next(sequence)
+
+    await model_agent.run("synthetic query", uid, [], {}, capture_complete)
+    rows.append(
+        {"case": "evidence_stage_exposes_only_evidence_tool", "passed": captured_definitions[1] == ["get_evidence"]}
+    )
     await scenario(
         "no_evidence_cannot_invent_answer",
         [response(answer={"answer": "invented", "evidence_ids": []})],
@@ -200,6 +217,44 @@ async def evaluate():
     with SessionLocal() as db:
         charged = db.get(ModelBudget, first[0][0]).charged_micro_cny
     rows.append({"case": "budget_settlement", "passed": charged == 1000})
+    from information_agent.agent_tools import SearchItems
+    from information_agent.query_policy import query_filters
+
+    rows.append(
+        {
+            "case": "negated_matches_do_not_select_matches",
+            "passed": query_filters("总结绿龙近7天的采访，只使用采访，不要比赛")
+            == {"view": "news", "news_kind": "interview"},
+        }
+    )
+    rows.append(
+        {
+            "case": "combined_news_matches_remain_all",
+            "passed": query_filters("总结绿龙新闻和比赛") == {"view": "all", "news_kind": "all"},
+        }
+    )
+    with SessionLocal() as db:
+        interview_item = Item(
+            watch_id="esports:cs2",
+            canonical_url="https://example.invalid/synthetic-interview",
+            title="Synthetic interview",
+            summary="Synthetic interview excerpt",
+            source_name="完美世界电竞 · 战队采访",
+            source_type="media",
+            ingestion_mode="api",
+            event_key="interview",
+            published_at=now_utc(),
+        )
+        db.add(interview_item)
+        db.commit()
+        interview_id = interview_item.id
+    selected = await SearchItems(uid, news_kind="interview").execute(limit=5, view="matches")
+    rows.append(
+        {
+            "case": "server_interview_scope_overrides_wrong_view",
+            "passed": [r["id"] for r in selected] == [interview_id] and selected[0]["content_kind"] == "interview",
+        }
+    )
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,

@@ -34,6 +34,30 @@ def query_window(question: str) -> tuple[datetime | None, datetime | None]:
     return None, None
 
 
+def query_filters(question: str) -> dict:
+    # Do not count negated categories as positive requests (e.g. 采访，不要比赛).
+    positive = re.sub(
+        r"(?:不要|不需要|不看|排除|无需|别看)\s*(?:的)?(?:比赛|赛程|赛果|比分|待赛|采访|专访|转会|阵容|财报|业绩)",
+        "",
+        question,
+    )
+    wants_matches = any(word in positive for word in ("比赛", "赛程", "赛果", "比分", "待赛"))
+    wants_news = any(
+        word in positive for word in ("新闻", "消息", "资讯", "采访", "专访", "转会", "阵容", "财报", "业绩")
+    )
+    kinds = [
+        kind
+        for kind, words in (
+            ("interview", ("采访", "专访")),
+            ("roster", ("转会", "阵容")),
+            ("financial", ("财报", "业绩")),
+        )
+        if any(w in positive for w in words)
+    ]
+    view = "all" if wants_matches and wants_news else "matches" if wants_matches else "news"
+    return {"view": view, "news_kind": kinds[0] if len(kinds) == 1 and view == "news" else "all"}
+
+
 def display_title(title: str, source_name: str) -> str:
     # Old stored fixtures also need correction before the next provider sync.
     if source_name == "PandaScore · CS2 赛事数据" and title.endswith(" · 赛程"):

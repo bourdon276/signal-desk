@@ -17,7 +17,10 @@ from information_agent.web_search import FOCUSES, discover, targets
 
 
 class SearchItems(Tool):
-    def __init__(self, user_id: str, since: datetime | None = None, until: datetime | None = None) -> None:
+    def __init__(
+        self, user_id: str, since: datetime | None = None, until: datetime | None = None, news_kind: str = "all"
+    ) -> None:
+        self.news_kind = news_kind
         self.user_id = user_id
         self.since = since
         self.until = until
@@ -47,6 +50,7 @@ class SearchItems(Tool):
                     "maxItems": 26,
                 },
                 "view": {"type": "string", "enum": ["news", "matches", "all"]},
+                "news_kind": {"type": "string", "enum": ["all", "interview", "roster", "financial"]},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 5},
             },
             "required": ["limit"],
@@ -54,10 +58,17 @@ class SearchItems(Tool):
         }
 
     async def execute(
-        self, limit: int, watch_id: str | None = None, watch_ids: list[str] | None = None, view: str = "news"
+        self,
+        limit: int,
+        watch_id: str | None = None,
+        watch_ids: list[str] | None = None,
+        view: str = "news",
+        news_kind: str = "all",
     ) -> list[dict]:
         with SessionLocal() as db:
-            items = ranked_items(db, self.user_id, limit=500, view=view)
+            if self.news_kind != "all":
+                news_kind, view = self.news_kind, "news"
+            items = ranked_items(db, self.user_id, limit=500, view=view, news_kind=news_kind)
             if self.since is not None or self.until is not None:
 
                 def in_window(item):
@@ -85,6 +96,7 @@ class SearchItems(Tool):
                     "published_at": item["published_at"],
                     "source_name": item["source_name"],
                     "ingestion_mode": item["ingestion_mode"],
+                    "content_kind": item["content_kind"],
                 }
                 for item in items[:limit]
             ]
@@ -214,9 +226,10 @@ def scoped_registry(
     since: datetime | None = None,
     until: datetime | None = None,
     allow_search: bool = False,
+    news_kind: str = "all",
 ) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(SearchItems(user_id, since, until))
+    registry.register(SearchItems(user_id, since, until, news_kind))
     registry.register(GetEvidence(user_id))
     if allow_search:
         registry.register(SearchNews(user_id, since, until))

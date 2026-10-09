@@ -30,7 +30,7 @@ from information_agent.ingest_team_news import mentions_team
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
 from information_agent.news_quality import news_exclusion
 from information_agent.personalization import matches, user_scope
-from information_agent.query_policy import PRIVATE_DENIAL, query_window, requests_other_users
+from information_agent.query_policy import PRIVATE_DENIAL, query_filters, query_window, requests_other_users
 from information_agent.ranking import ranked_items
 from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
@@ -590,6 +590,8 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
                 "invalid_citation": "模型引用未通过校验",
                 "missing_inline_citation": "模型引用标记不完整",
                 "tool_limit": "模型工具调用超过限制",
+                "evidence_required": "模型未按要求取回证据",
+                "evidence_not_fetched": "已找到候选，但模型未取回证据",
                 "context_limit": "检索上下文超过限制",
                 "budget_exhausted": "今日调用次数或费用预算已达上限",
                 "request_budget": "单次预算不足",
@@ -635,12 +637,7 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
             raise RuntimeError(f"{name} failed")
         return result
 
-    wants_matches = any(word in question for word in ("比赛", "赛程", "赛果", "比分", "待赛"))
-    wants_news = any(word in question for word in ("新闻", "消息", "资讯"))
-    search_args = {
-        "limit": 5,
-        "view": "all" if wants_matches and wants_news else "matches" if wants_matches else "news",
-    }
+    search_args = {"limit": 5, **query_filters(question)}
     if matching:
         search_args["watch_ids"] = matching
     try:
