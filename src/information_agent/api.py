@@ -480,6 +480,43 @@ async def translate_item(item_id: str, user: User = Depends(current_user), db: S
         raise HTTPException(status_code=502, detail="翻译未完成，原文保留，请稍后再试") from None
 
 
+@router.get("/runs")
+def personal_runs(
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    limit: int = Query(default=30, ge=1, le=50),
+) -> dict:
+    rows = db.scalars(
+        select(AgentRun).where(AgentRun.user_id == user.id).order_by(AgentRun.started_at.desc()).limit(limit)
+    )
+    results = []
+    for run in rows:
+        try:
+            trace = json.loads(run.detail or "{}")
+        except (ValueError, TypeError):
+            trace = {"notice": "旧运行记录不是结构化JSON"}
+        if not isinstance(trace, dict):
+            trace = {"notice": "旧运行记录不是结构化对象"}
+        measured = trace.get("duration_ms")
+        duration = (
+            measured
+            if type(measured) is int and measured >= 0
+            else (max(0, round((run.finished_at - run.started_at).total_seconds() * 1000)) if run.finished_at else None)
+        )
+        results.append(
+            {
+                "id": run.id,
+                "kind": run.kind,
+                "status": run.status,
+                "started_at": run.started_at.isoformat(),
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "duration_ms": duration,
+                "trace": trace,
+            }
+        )
+    return {"runs": results, "limit": limit}
+
+
 @router.get("/runs/{run_id}")
 def my_run(run_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     run = db.get(AgentRun, run_id)

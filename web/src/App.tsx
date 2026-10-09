@@ -2,6 +2,8 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 
 type FeedDiagnostics = { kind_excluded: number; quality_excluded: number; hiding_feedback: { id: string; action: string; title: string }[]; candidates: number; hidden_not_interested: number; hidden_duplicate: number; eligible_count: number; unread_count: number; returned_count: number; candidate_limit_reached: boolean; omitted_by_limit: number }
 
+type PersonalRun = { id: string; kind: string; status: string; started_at: string; finished_at: string | null; duration_ms: number | null; trace: { model_calls?: number; estimated_cost_cny?: number; tools?: unknown[]; [key: string]: unknown } }
+
 type Translation = { title: string; summary: string; cache_hit: boolean; estimated_cost_cny: number | null; run_id?: string }
 
 type FeedView = 'news' | 'matches' | 'all'
@@ -38,6 +40,10 @@ export default function App() {
   const [useModel, setUseModel] = useState(false)
   const [useSearch, setUseSearch] = useState(false)
   const [searchFocus, setSearchFocus] = useState('recent')
+  const [showRuns, setShowRuns] = useState(false)
+  const [personalRuns, setPersonalRuns] = useState<PersonalRun[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+  const runsVersion = useRef(0)
   const [translations, setTranslations] = useState<Record<string, Translation>>({})
   const [translatingId, setTranslatingId] = useState<string | null>(null)
   const translationVersion = useRef(0)
@@ -152,6 +158,21 @@ export default function App() {
       if (version === searchVersion.current) setSearchReport({ ...report, text: (cause as Error).message, pending: false, failed: true })
     } finally { if (version === searchVersion.current) setBusy(false) }
   }
+  async function loadRuns() {
+    const version = ++runsVersion.current
+    setShowRuns(true); setRunsLoading(true); setError('')
+    try {
+      const result = await api<{ runs: PersonalRun[] }>('/runs?limit=50', token)
+      if (version === runsVersion.current) setPersonalRuns(result.runs)
+    } catch (cause) { if (version === runsVersion.current) { setPersonalRuns([]); setError((cause as Error).message) } }
+    finally { if (version === runsVersion.current) setRunsLoading(false) }
+  }
+  function exportRuns() {
+    const file = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), scope: 'own_latest_50_runs', runs: personalRuns }, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(file)
+    const link = document.createElement('a'); link.href = url; link.download = `signal-runs-${new Date().toISOString().slice(0, 10)}.json`; link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
   async function translateArticle(item: Item) {
     if (translatingId || translations[item.id]) return
     const version = ++translationVersion.current
@@ -167,7 +188,7 @@ export default function App() {
     try { setAnswer(await api<Answer>('/ask', token, { method: 'POST', body: JSON.stringify({ question, use_model: useModel, use_search: useSearch }) })) }
     catch (cause) { setError((cause as Error).message) } finally { setBusy(false) }
   }
-  function logout() { ++translationVersion.current; setTranslations({}); setTranslatingId(null); setSharedUrl(''); ++searchVersion.current; setSearchReport(null); setBusy(false); ++refreshVersion.current; setFeedLoading(false); setFeedDiagnostics(null); setFeedbackItem(null); setUseSearch(false); localStorage.removeItem('signal-token'); setToken(''); setItems([]); setFeedback([]); setTopics([]); setWatches([]); setAnswer(null); setError(''); setNotice(''); setFilter('all'); setCoverages([]); setSources([]); setUnread(false); setQuickRead(false) }
+  function logout() { ++runsVersion.current; setShowRuns(false); setPersonalRuns([]); setRunsLoading(false); ++translationVersion.current; setTranslations({}); setTranslatingId(null); setSharedUrl(''); ++searchVersion.current; setSearchReport(null); setBusy(false); ++refreshVersion.current; setFeedLoading(false); setFeedDiagnostics(null); setFeedbackItem(null); setUseSearch(false); localStorage.removeItem('signal-token'); setToken(''); setItems([]); setFeedback([]); setTopics([]); setWatches([]); setAnswer(null); setError(''); setNotice(''); setFilter('all'); setCoverages([]); setSources([]); setUnread(false); setQuickRead(false) }
 
   if (!token) return <main className="login-page"><div className="login-title">阅讯<span>个人资讯阅读台</span></div><section className="login-box"><h1>{registering ? '创建账号' : '欢迎回来'}</h1><p>关注你关心的事，把消息集中在这里读。</p><form onSubmit={auth}>
     <label>邮箱<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} /></label>
@@ -191,9 +212,10 @@ export default function App() {
     {selected.map(t => <button className={filter === t.id ? 'nav active' : 'nav'} key={t.id} disabled={busy} onClick={() => setFilter(t.id)}>{t.name}{filter === t.id && <span>{feedDiagnostics?.eligible_count ?? 0}</span>}</button>)}
     <button className="add-shortcut" onClick={() => setEditing(true)}>＋ 添加关注</button>
     <div className="source-note"><strong>来源更新</strong>{sources.filter(s => s.automatic).map(s => <p key={s.id}>{s.label} · {sourceLabel(s.status)}<br />{updateTime(s.last_success_at)}</p>)}<p>{sources.find(s => s.id === 'stock_announcements')?.automatic ? '股票公告接口已配置。' : '股票自动公告待巨潮授权。'}<br />比赛记录来自 PandaScore；战队新闻由媒体 RSS 与公开新闻搜索补充。</p><a href="/privacy.html" target="_blank" rel="noopener noreferrer">数据与来源说明 ↗</a></div></aside>
-    <main className="main"><header className="topbar"><span>{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</span><div><button onClick={() => setEditing(!editing)}>管理关注</button><button onClick={logout}>退出</button></div></header>
+    <main className="main"><header className="topbar"><span>{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</span><div><button disabled={runsLoading} onClick={() => void loadRuns()}>运行记录</button><button onClick={() => setEditing(!editing)}>管理关注</button><button onClick={logout}>退出</button></div></header>
     <div className="workspace"><section className="heading"><div><h1>{filter === 'all' ? '我的阅读台' : currentTopic?.name}</h1><p>{unreadCount ? `还有 ${unreadCount} 条未读。先看概况，再决定是否打开原文。` : '当前消息已读完。下次来源更新后再来看看。'}</p></div><button onClick={() => void refresh()} disabled={busy}>刷新</button></section>
     {error && <div className="message error" role="alert">{error}<button onClick={() => setError('')}>关闭</button></div>}{notice && <div className="message">{notice}</div>}
+    {showRuns && <section className="settings run-history"><div className="section-title"><h2>我的运行记录</h2><button onClick={() => setShowRuns(false)}>收起</button></div><p>最近50条已记录操作；执行成功不代表回答准确。费用是按配置报价估算，缓存命中不一定产生新记录。</p><div className="run-actions"><button disabled={runsLoading} onClick={() => void loadRuns()}>刷新记录</button><button disabled={runsLoading || !personalRuns.length} onClick={exportRuns}>导出JSON</button></div>{runsLoading ? <p role="status">正在读取记录…</p> : !personalRuns.length ? <p>暂无已记录操作。完成一次模型问答或翻译后，刷新记录查看。</p> : personalRuns.map(run => <details key={run.id}><summary><span>{({ model_agent: '模型问答', evidence_answer: '库存检索', article_translation: '中文翻译', web_news_search_sync: '联网搜索', policy_denial: '权限拒绝', perfect_world_share_import: '分享导入' } as Record<string, string>)[run.kind] || run.kind} · {({ success: '完成', failure: '失败', running: '进行中' } as Record<string, string>)[run.status] || run.status}</span><small>{updateTime(run.started_at)} · {run.duration_ms === null ? '耗时待记录' : `${(run.duration_ms / 1000).toFixed(1)}秒`} · {typeof run.trace.estimated_cost_cny === 'number' ? `估算¥${run.trace.estimated_cost_cny.toFixed(5)}` : '费用未记录'}</small></summary><p>{run.id}</p><pre>{JSON.stringify(run.trace, null, 2)}</pre></details>)}</section>}
     {editing && <section className="settings"><div className="section-title"><h2>管理关注</h2><button onClick={() => setEditing(false)}>收起</button></div><p>添加后会按证券代码或战队对象匹配内容。</p><div className="topic-grid">{options.map(t => <button disabled={busy} key={t.id} className={watches.includes(t.id) ? 'topic selected' : 'topic'} onClick={() => void mutate('/watches', 'PUT', { watch_id: t.id, enabled: !watches.includes(t.id) })}>{t.name}<span>{watches.includes(t.id) ? '已关注' : '关注'}</span></button>)}</div>
       <div className="topic-kind"><button type="button" className={topicKind === 'stock' ? 'chosen' : ''} onClick={() => setTopicKind('stock')}>A 股代码</button><button type="button" className={topicKind === 'team' ? 'chosen' : ''} onClick={() => setTopicKind('team')}>CS2 战队</button></div><form className="topic-form" onSubmit={addTopic}>{topicKind === 'stock' ? <><label>六位证券代码<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} placeholder="例如 002491" value={stockCode} onChange={e => setStockCode(e.target.value)} /></label><label>显示名称（可选）<input maxLength={60} placeholder="留空时显示股票代码" value={topicName} onChange={e => setTopicName(e.target.value)} /></label></> : <label>CS2 战队名称<input required minLength={2} maxLength={60} placeholder="例如：绿龙 / Team Spirit" value={topicName} onChange={e => setTopicName(e.target.value)} /></label>}<button className="primary" disabled={busy}>添加并关注</button></form><p className="hint">股票自动公告使用巨潮资讯接口，需要在服务端配置账号和展示许可；此功能不提供实时行情。CS2 战队连接 PandaScore 公开赛程与比分，绿龙已映射为 Team Spirit；需配置免费的 API Token。它不覆盖战队官宣、采访或全部媒体新闻。Valve 游戏更新只保留历史收录，不再持续采集。</p></section>}
     <details className="sources-detail"><summary>来源与更新状态</summary><div className="sources-grid">{sources.map(s => <div key={s.id}><strong>{s.label}</strong><span className={s.status === 'failure' || s.status === 'stale' || s.status === 'partial' ? 'source-warning' : ''}>{sourceLabel(s.status)}</span><p>{s.description}</p>{s.automatic && <small>上次成功：{updateTime(s.last_success_at)}（北京时间）</small>}{s.id === 'cs2_team_fixtures' && s.last_result && <small className="run-summary">{pandascoreRun(s.last_result)}</small>}{s.id === 'web_news_search' && s.last_result && <small className="run-summary">最近一次搜索：返回 {s.last_result.entries ?? 0} 条 · 匹配 {s.last_result.matched ?? 0} 条 · 新增 {s.last_result.created ?? 0} 条{(s.last_result.matched ?? 0) === 0 ? ' · 覆盖不足' : ''}</small>}{['cs2_team_news', 'dust2_br_news', 'perfect_world_share'].includes(s.id) && s.last_result && <small className="run-summary">最近一轮：读取 {s.last_result.entries ?? 0} 篇 · 相关 {s.last_result.matched ?? 0} 篇 · 新增 {s.last_result.created ?? 0} 篇{(s.last_result.matched ?? 0) === 0 ? " · 本轮未匹配到关注战队的新闻" : ""}</small>}{s.id === 'cs2_team_fixtures' && <a href="https://github.com/bourdon276/signal-desk/blob/main/docs/team-source-setup.md" target="_blank" rel="noopener noreferrer">Token 配置指南 ↗</a>}{s.id === 'stock_announcements' && <a href="https://github.com/bourdon276/signal-desk/blob/main/docs/stock-api-setup.md" target="_blank" rel="noopener noreferrer">股票来源配置说明 ↗</a>}{s.last_error && <p>{s.last_error}</p>}</div>)}</div></details>
