@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from information_agent import model_agent
+from information_agent import model_agent, translation
 from information_agent.agent_tools import SearchNews, news_age_label, scoped_registry
 from information_agent.config import settings
 from information_agent.db import get_db
@@ -459,6 +459,25 @@ def import_shared_news(payload: SharedNewsInput, user: User = Depends(current_us
     db.add(run)
     db.commit()
     return {"title": item.title, "created": bool(created), "run_id": run.id}
+
+
+@router.post("/items/{item_id}/translate")
+async def translate_item(item_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    item = db.get(Item, item_id)
+    enabled, topics = user_scope(db, user.id)
+    if item is None or not matches(item, enabled, topics):
+        raise HTTPException(status_code=404, detail="文章不在当前关注范围内")
+    try:
+        return await translation.translate(user.id, item.id, item.title, item.summary)
+    except RuntimeError as exc:
+        reason = str(exc)
+        if reason in {"budget_exhausted", "request_budget"}:
+            raise HTTPException(status_code=429, detail="模型额度已达上限，原文仍可阅读") from None
+        if reason == "translation_busy":
+            raise HTTPException(status_code=409, detail="这篇文章正在翻译，请稍后再试") from None
+        if reason == "not_configured":
+            raise HTTPException(status_code=503, detail="中文翻译需要配置模型服务") from None
+        raise HTTPException(status_code=502, detail="翻译未完成，原文保留，请稍后再试") from None
 
 
 @router.get("/runs/{run_id}")

@@ -49,11 +49,11 @@ def configured() -> bool:
     )
 
 
-def reserve(user_id: str, allow_search: bool = False) -> tuple[list[str], int]:
+def reserve(user_id: str, allow_search: bool = False, single_call: bool = False) -> tuple[list[str], int]:
     """Atomic reservations survive restarts and serialize concurrent spending."""
     now = now_utc()
     amount = math.ceil(
-        (SEARCH_MAX_ROUNDS if allow_search else MAX_ROUNDS)
+        (1 if single_call else SEARCH_MAX_ROUNDS if allow_search else MAX_ROUNDS)
         * (
             MAX_CONTEXT_BYTES * settings.model_input_cny_per_million
             + MAX_OUTPUT_TOKENS * settings.model_output_cny_per_million
@@ -110,6 +110,9 @@ async def completion(client: httpx.AsyncClient, messages: list, tools: list, fin
         "tool_choice": "none" if final else "auto",
         "max_tokens": MAX_OUTPUT_TOKENS,
     }
+    if not tools:
+        payload.pop("tools")
+        payload.pop("tool_choice")
     if urlsplit(settings.model_base_url).hostname == "api.deepseek.com":
         # This bounded news summarizer uses non-thinking mode. Thinking tool rounds
         # require reasoning_content replay, which this adapter intentionally omits.
