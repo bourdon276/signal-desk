@@ -68,6 +68,27 @@ async def evaluate():
     evidence = response([tool("get_evidence", {"item_id": item_id})])
     final = response(answer={"answer": "Synthetic fact [" + item_id + "]", "evidence_ids": [item_id]})
     rows = []
+    import httpx
+
+    captured = []
+
+    def capture_completion(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": []})
+
+    original_base = settings.model_base_url
+    try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(capture_completion)) as client:
+            settings.model_base_url = "https://api.deepseek.com/v1"
+            await model_agent.completion(client, [{"role": "system", "content": "Return JSON."}], [], True)
+            await model_agent.completion(client, [], [], False)
+            settings.model_base_url = "https://example.invalid/v1"
+            await model_agent.completion(client, [], [], True)
+        rows.append({"case": "official_deepseek_final_json_mode_only", "passed":
+            captured[0].get("response_format") == {"type": "json_object"}
+            and "response_format" not in captured[1] and "response_format" not in captured[2]})
+    finally:
+        settings.model_base_url = original_base
 
     async def scenario(name, responses, expected=None, empty_user=False):
         queue = iter(responses)

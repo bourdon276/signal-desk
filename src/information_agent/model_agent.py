@@ -127,6 +127,10 @@ async def completion(client: httpx.AsyncClient, messages: list, tools: list, fin
         # This bounded news summarizer uses non-thinking mode. Thinking tool rounds
         # require reasoning_content replay, which this adapter intentionally omits.
         payload["thinking"] = {"type": "disabled"}
+        if final:
+            # JSON mode constrains syntax; evidence IDs and citations still require
+            # server validation. Keep other compatible providers unchanged.
+            payload["response_format"] = {"type": "json_object"}
     if len(json.dumps(payload, ensure_ascii=False).encode()) > MAX_CONTEXT_BYTES:
         raise RuntimeError("context_limit")
     # Administrative configuration only; never accepts a destination from the user/model.
@@ -199,7 +203,9 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
             messages.append(
                 {
                     "role": "system",
-                    "content": f"本轮剩余工具执行次数：{MAX_TOOLS - tool_count}。有候选先取证据；最后一轮只生成答案。",
+                    "content": f"本轮剩余工具执行次数：{MAX_TOOLS - tool_count}。有候选先取证据；"
+                    '最终答案只输出裸JSON对象：{"answer":"中文回答，每个事实附[1]等引用",'
+                    '"evidence_ids":["已取得证据的ID，按引用顺序"]}。不要输出JSON以外的文字。',
                 }
             )
             trace["model_calls"] += 1
@@ -320,7 +326,9 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
                 content = fenced.group(1)
             try:
                 final = json.loads(content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                # Diagnostic metadata only: never expose raw model/source content.
+                trace["answer_format_diagnostics"] = {"characters": len(content), "error_position": exc.pos}
                 raise RuntimeError("invalid_answer_json") from None
             if not isinstance(final, dict):
                 raise RuntimeError("invalid_answer_json")
