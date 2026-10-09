@@ -160,7 +160,10 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
     }
     filters = query_filters(question)
     trace["query_filters"] = filters
-    registry = scoped_registry(user_id, since, until, allow_search=allow_search, news_kind=filters["news_kind"])
+    registry = scoped_registry(
+        user_id, since, until, allow_search=allow_search,
+        news_kind=filters["news_kind"], query_view=filters["view"],
+    )
     messages = [
         {"role": "system", "content": SYSTEM},
         {

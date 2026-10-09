@@ -281,6 +281,31 @@ async def evaluate():
             "passed": [r["id"] for r in selected] == [interview_id] and selected[0]["content_kind"] == "interview",
         }
     )
+    with SessionLocal() as db:
+        match_item = Item(
+            watch_id="esports:cs2",
+            canonical_url="https://example.invalid/synthetic-match",
+            title="Synthetic Team 2 : 1 Opponent · 赛果",
+            source_name="PandaScore · CS2 赛事数据",
+            source_type="other", ingestion_mode="api", event_key="match", published_at=now_utc(),
+        )
+        db.add(match_item)
+        db.commit()
+        match_id = match_item.id
+    for required, requested in (("news", "matches"), ("matches", "news"), ("all", "news")):
+        selected = await SearchItems(uid, query_view=required).execute(limit=5, view=requested)
+        ids = {r["id"] for r in selected}
+        passed = (
+            match_id not in ids and interview_id in ids if required == "news"
+            else ids == {match_id} if required == "matches"
+            else {match_id, interview_id}.issubset(ids)
+        )
+        rows.append({"case": "server_query_view_" + required, "passed": passed})
+    from information_agent.agent_tools import news_age_label
+
+    rows.append({"case": "evidence_dates_use_beijing", "passed":
+        news_age_label("2026-09-27T16:00:00+00:00") == "2026-09-28"
+        and news_age_label(None) == "发布时间未知"})
     from datetime import timedelta
     from types import SimpleNamespace
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -19,8 +20,10 @@ from information_agent.web_search import FOCUSES, discover, targets
 
 class SearchItems(Tool):
     def __init__(
-        self, user_id: str, since: datetime | None = None, until: datetime | None = None, news_kind: str = "all"
+        self, user_id: str, since: datetime | None = None, until: datetime | None = None,
+        news_kind: str = "all", query_view: str | None = None,
     ) -> None:
+        self.query_view = query_view
         self.news_kind = news_kind
         self.user_id = user_id
         self.since = since
@@ -67,6 +70,8 @@ class SearchItems(Tool):
         news_kind: str = "all",
     ) -> list[dict]:
         with SessionLocal() as db:
+            if self.query_view is not None:
+                view = self.query_view
             if self.news_kind != "all":
                 news_kind, view = self.news_kind, "news"
             items = ranked_items(db, self.user_id, limit=500, view=view, news_kind=news_kind, group_events=False)
@@ -233,9 +238,10 @@ def scoped_registry(
     until: datetime | None = None,
     allow_search: bool = False,
     news_kind: str = "all",
+    query_view: str | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(SearchItems(user_id, since, until, news_kind))
+    registry.register(SearchItems(user_id, since, until, news_kind, query_view))
     registry.register(GetEvidence(user_id))
     if allow_search:
         registry.register(SearchNews(user_id, since, until))
@@ -248,4 +254,4 @@ def news_age_label(value: str | None) -> str:
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC).strftime("%Y-%m-%d")
+    return parsed.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")

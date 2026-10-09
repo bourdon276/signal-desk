@@ -617,7 +617,8 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
     db.add(run)
     db.commit()
     since, until = query_window(question)
-    registry = scoped_registry(user.id, since, until)
+    filters = query_filters(question)
+    registry = scoped_registry(user.id, since, until, news_kind=filters["news_kind"], query_view=filters["view"])
     trace = []
 
     async def execute_tool(name: str, arguments: dict):
@@ -637,7 +638,7 @@ async def ask(payload: AskInput, user: User = Depends(current_user), db: Session
             raise RuntimeError(f"{name} failed")
         return result
 
-    search_args = {"limit": 5, **query_filters(question)}
+    search_args = {"limit": 5, **filters}
     if matching:
         search_args["watch_ids"] = matching
     try:
