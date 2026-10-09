@@ -19,6 +19,9 @@ from information_agent.news_quality import news_exclusion
 KIND = "cs2_team_news_sync"
 FEED_URL = "https://esportsinsider.com/feed?category_name=counter-strike"
 LOCK = Lock()
+DUST2_LOCK = Lock()
+DUST2_KIND = "dust2_br_news_sync"
+DUST2_FEED_URL = "https://www.dust2.com.br/rss"
 
 
 def mentions_team(text: str, name: str) -> bool:
@@ -32,23 +35,37 @@ def mentions_team(text: str, name: str) -> bool:
 
 
 def sync() -> dict:
-    with LOCK, SessionLocal() as db:
+    return sync_feed(FEED_URL, KIND, {"esportsinsider.com", "www.esportsinsider.com"}, "Esports Insider", LOCK)
+
+
+def sync_dust2() -> dict:
+    return sync_feed(DUST2_FEED_URL, DUST2_KIND, {"www.dust2.com.br"}, "Dust2 Brasil", DUST2_LOCK)
+
+
+def sync_feed(feed_url: str, kind: str, hosts: set[str], publisher: str, lock) -> dict:
+    with lock, SessionLocal() as db:
         teams = watched_teams(db)
         if not teams:
             return {"status": "no_team_subscriptions", "created": 0}
-        run = AgentRun(kind=KIND, status="running", detail="")
+        run = AgentRun(kind=kind, status="running", detail="")
         db.add(run)
         db.commit()
         try:
             with httpx.Client(timeout=20, follow_redirects=False, trust_env=False) as client:
-                parsed = feedparser.parse(download(client, FEED_URL))
+                parsed = feedparser.parse(download(client, feed_url))
             if not parsed.entries:
                 raise ValueError("RSS has no usable entries")
             stats = {"entries": len(parsed.entries), "matched": 0, "created": 0, "skipped": 0, "quality_excluded": 0}
             for entry in parsed.entries[:100]:
                 title = brief_text(entry.get("title", ""))
                 text = title + " " + brief_text(entry.get("summary", ""))
-                url = safe_link(entry.get("link", ""), {"esportsinsider.com", "www.esportsinsider.com"})
+                url = safe_link(entry.get("link", ""), hosts)
+                if (
+                    publisher == "Dust2 Brasil"
+                    and url
+                    and not re.fullmatch(r"https://www\.dust2\.com\.br/noticias/[0-9]+/[^?#/]+", url)
+                ):
+                    url = None
                 stamp = published_at(entry)
                 if not url or not title or stamp is None or not now_utc() - timedelta(days=30) <= stamp <= now_utc():
                     stats["skipped"] += 1
@@ -56,7 +73,7 @@ def sync() -> dict:
                 for marker, name in teams.items():
                     if not mentions_team(text, name):
                         continue
-                    if news_exclusion(title, marker, "Esports Insider · 战队新闻"):
+                    if news_exclusion(title, marker, f"{publisher} · 战队新闻"):
                         stats["quality_excluded"] += 1
                         continue
                     stats["matched"] += 1
@@ -65,9 +82,13 @@ def sync() -> dict:
                         watch_id=marker,
                         canonical_url=url,
                         title=title,
-                        summary=f"Esports Insider 的 Counter-Strike 新闻索引提及 {name}。"
-                        "仅收录标题、发布时间及原文链接；正文与具体结论请阅读原文。",
-                        source_name="Esports Insider · 战队新闻",
+                        summary=(
+                            "Dust2 Brasil 来源短摘录：" + brief_text(entry.get("summary", ""))
+                            if publisher == "Dust2 Brasil" and entry.get("summary")
+                            else f"{publisher} 的 Counter-Strike 新闻索引提及 {name}。"
+                            "仅收录标题、发布时间及原文链接；正文与具体结论请阅读原文。"
+                        ),
+                        source_name=f"{publisher} · 战队新闻",
                         source_type="media",
                         ingestion_mode="rss",
                         published_at=stamp,

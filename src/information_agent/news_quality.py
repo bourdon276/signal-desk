@@ -2,7 +2,10 @@
 
 import re
 
-PREDICTION_TITLE = re.compile(r"\b(?:odds|betting|bets|bookmakers?|predictions?)\b|赔率|投注|博彩|赛前预测", re.I)
+PREDICTION_TITLE = re.compile(
+    r"\b(?:odds|betting|bets|bookmakers?|predictions?|apostas?|palpites?|prognósticos?)\b|赔率|投注|博彩|赛前预测",
+    re.I,
+)
 
 
 def is_prediction(title: str) -> bool:

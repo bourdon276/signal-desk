@@ -154,6 +154,7 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
     elif settings.sync_in_web and payload.team_name:
         sync_queued = request_sync("cs2_team_matches")
         request_sync("cs2_team_news")
+        request_sync("dust2_br_news")
         request_sync("perfect_world_news")
     if settings.sync_in_web and search_configured():
         sync_queued = request_sync("web_news") or sync_queued

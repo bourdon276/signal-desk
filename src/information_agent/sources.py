@@ -18,6 +18,15 @@ from information_agent.search_provider import configured as search_configured
 
 SOURCE_SPECS = [
     {
+        "id": "dust2_br_news",
+        "kind": "dust2_br_news_sync",
+        "watch_id": "esports:cs2",
+        "label": "Dust2 Brasil · 战队新闻与采访",
+        "automatic": True,
+        "description": "直接读取媒体公开RSS，按订阅战队匹配，保留近30天标题、短摘录和原文链接；"
+        "葡语原文，采访按标题识别。每小时读取最新条目，不保证补齐30天全部历史报道。",
+    },
+    {
         "id": "perfect_world_share",
         "kind": "perfect_world_news_sync",
         "watch_id": "esports:cs2",
@@ -121,7 +130,13 @@ def state(db, kind: str | None, automatic: bool) -> dict:
         "last_attempt_at": latest.started_at.isoformat() if latest else None,
         "last_error": "最近采集未成功，已有消息保留。" if latest and latest.status == "failure" else None,
     }
-    if kind in {PANDASCORE_KIND, "cs2_team_news_sync", "web_news_search_sync", "perfect_world_news_sync"}:
+    if kind in {
+        PANDASCORE_KIND,
+        "cs2_team_news_sync",
+        "web_news_search_sync",
+        "perfect_world_news_sync",
+        "dust2_br_news_sync",
+    }:
         metrics = None
         if latest and latest.status in {"success", "partial"}:
             try:
@@ -209,7 +224,7 @@ def coverage(db, user_id):
             note = (
                 "已保存 CS2 战队关注；等待 PandaScore 私密 API Token。配置后同步赛程、比分，不等同于战队新闻。"
                 if not auto
-                else "新闻由 Tavily、媒体 RSS 与已知完美世界分享链接补充；PandaScore 只提供比赛记录，"
+                else "新闻由 Dust2 Brasil、Tavily、媒体 RSS 与已知完美世界分享链接补充；PandaScore 只提供比赛记录，"
                 "单独展示近30天赛果及未来7天赛程。新闻覆盖仍可能不足。"
             )
         else:
