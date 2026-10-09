@@ -6,11 +6,12 @@ import hmac
 import json
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
@@ -23,7 +24,11 @@ from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
 from information_agent.entities import canonical_team_name, is_team_watch_id, team_watch_id
+from information_agent.ingest_common import store_item
+from information_agent.ingest_perfect_news import read_article, reserve_import, share_news_id
+from information_agent.ingest_team_news import mentions_team
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
+from information_agent.news_quality import news_exclusion
 from information_agent.personalization import matches, user_scope
 from information_agent.query_policy import PRIVATE_DENIAL, query_window, requests_other_users
 from information_agent.ranking import ranked_items
@@ -31,7 +36,7 @@ from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
 from information_agent.sync_worker import request_sync
-from information_agent.web_search import FOCUSES
+from information_agent.web_search import FOCUSES, targets
 
 router = APIRouter(prefix="/api")
 
@@ -76,6 +81,11 @@ class AskInput(BaseModel):
 class SearchInput(BaseModel):
     watch_id: str = Field(min_length=1, max_length=64)
     focus: str = "recent"
+
+
+class SharedNewsInput(BaseModel):
+    watch_id: str = Field(min_length=1, max_length=64)
+    url: str = Field(min_length=1, max_length=500)
 
 
 class TopicInput(BaseModel):
@@ -144,6 +154,7 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
     elif settings.sync_in_web and payload.team_name:
         sync_queued = request_sync("cs2_team_matches")
         request_sync("cs2_team_news")
+        request_sync("perfect_world_news")
     if settings.sync_in_web and search_configured():
         sync_queued = request_sync("web_news") or sync_queued
     return {
@@ -407,6 +418,46 @@ async def search_news(payload: SearchInput, user: User = Depends(current_user)) 
     if payload.focus not in FOCUSES:
         raise HTTPException(status_code=422, detail="无效搜索类别")
     return await SearchNews(user.id, None, None, include_diagnostics=True).execute(payload.watch_id, payload.focus)
+
+
+@router.post("/shared-news")
+def import_shared_news(payload: SharedNewsInput, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    target = targets(db, user.id).get(payload.watch_id)
+    if target is None or target["kind"] != "team":
+        raise HTTPException(status_code=403, detail="请选择你已关注的CS2战队")
+    try:
+        news_id = share_news_id(payload.url.strip())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="请粘贴完美世界电竞的CS2新闻分享链接") from None
+    if not reserve_import(db, user.id):
+        raise HTTPException(status_code=429, detail="分享读取额度已达上限，明天再试")
+    try:
+        with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
+            values = read_article(client, news_id)
+    except Exception:
+        raise HTTPException(status_code=502, detail="公开文章暂时无法读取，已有消息保留") from None
+    if not now_utc() - timedelta(days=30) <= values["published_at"] <= now_utc():
+        raise HTTPException(status_code=422, detail="这篇文章不在最近30天内")
+    if not mentions_team(values.pop("match_text"), target["name"]):
+        raise HTTPException(status_code=422, detail="这篇文章未匹配到所选战队，请核对关注对象")
+    if news_exclusion(values["title"], target["watch_id"], values["source_name"]):
+        raise HTTPException(status_code=422, detail="预测或赔率内容不加入新闻列表")
+    created = store_item(db, watch_id=target["watch_id"], **values)
+    item = db.scalar(select(Item).where(Item.canonical_url == values["canonical_url"]))
+    if item is None or item.watch_id != target["watch_id"]:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="这篇文章已归入其他对象，暂不支持多战队关联")
+    run = AgentRun(
+        user_id=user.id,
+        kind="perfect_world_share_import",
+        status="success",
+        item_count=int(created),
+        detail=json.dumps({"news_id": news_id, "created": int(created)}),
+        finished_at=now_utc(),
+    )
+    db.add(run)
+    db.commit()
+    return {"title": item.title, "created": bool(created), "run_id": run.id}
 
 
 @router.get("/runs/{run_id}")

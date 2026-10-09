@@ -7,6 +7,7 @@ import time
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
 from information_agent.ingest_pandascore import sync as sync_pandascore
+from information_agent.ingest_perfect_news import sync as sync_perfect_news
 from information_agent.ingest_team_news import sync as sync_team_news
 from information_agent.web_search import sync as sync_web_news
 
@@ -16,6 +17,7 @@ SYNCERS = {
     "fed": sync_fed,
     "cs2_team_matches": sync_pandascore,
     "cs2_team_news": sync_team_news,
+    "perfect_world_news": sync_perfect_news,
     "stock_announcements": sync_cninfo,
     "web_news": sync_web_news,
 }

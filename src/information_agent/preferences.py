@@ -24,6 +24,9 @@ def content_kind(item) -> str:
     text = item.title.casefold()
     if item.source_name == "PandaScore · CS2 赛事数据":
         return "match"
+    if item.source_name == "完美世界电竞 · 战队采访":
+        # Assigned by the fixed-source adapter from the publisher's structured interview tag.
+        return "interview"
     if item.watch_id.startswith("stock:"):
         if re.search(r"年度报告|半年度报告|季度报告|财报|业绩|financial|earnings", text):
             return "financial"
