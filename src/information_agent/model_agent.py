@@ -247,14 +247,47 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
                     allowed = {"search_items", "get_evidence"} | ({"search_news"} if allow_search else set())
                     if not isinstance(arguments, dict) or name not in allowed:
                         raise RuntimeError("invalid_tool")
-                    if need_evidence and name != "get_evidence":
-                        raise RuntimeError("evidence_required")
                     if not isinstance(call.get("id"), str) or call["id"] in call_ids:
                         raise RuntimeError("invalid_call_id")
                     call_ids.add(call["id"])
+                    if need_evidence and name in {"search_items", "search_news"}:
+                        # Providers can ignore forced tool choice. Recover only from
+                        # IDs returned in this run, through the same scoped registry.
+                        recovered = []
+                        for item_id in sorted(searchable)[:min(5, MAX_TOOLS - tool_count)]:
+                            start = perf_counter()
+                            result = await asyncio.wait_for(
+                                registry.execute("get_evidence", {"item_id": item_id}), timeout=5
+                            )
+                            tool_count += 1
+                            valid = isinstance(result, dict) and result.get("id") == item_id
+                            trace["tools"].append({
+                                "tool": "get_evidence",
+                                "arguments": {"item_id": item_id},
+                                "actor": "server_recovery",
+                                "duration_ms": round((perf_counter() - start) * 1000),
+                                "status": "success" if valid else "failure",
+                                "result_count": int(valid),
+                            })
+                            if not valid:
+                                raise RuntimeError("tool_error")
+                            evidence[item_id] = result
+                            recovered.append(result)
+                        trace.setdefault("skipped_tools", []).append({
+                            "tool": name, "reason": "evidence_required", "recovery_count": len(recovered),
+                        })
+                        messages.append({
+                            "role": "tool", "tool_call_id": call["id"],
+                            "content": json.dumps({
+                                "error": "evidence_required",
+                                "message": "重复搜索未执行；服务端已通过get_evidence取回当前候选，回答仅引用以下证据。",
+                                "server_evidence": recovered,
+                            }, ensure_ascii=False),
+                        })
+                        continue
                     if searchable and not evidence and name in {"search_items", "search_news"}:
                         # A second search in the same batch must not consume evidence budget.
-                        # Later rounds already expose only get_evidence and reject wrong tools.
+                        # Later rounds expose only get_evidence and recover wrong searches.
                         trace.setdefault("skipped_tools", []).append({"tool": name, "reason": "evidence_required"})
                         messages.append(
                             {

@@ -118,7 +118,20 @@ async def evaluate():
         )
 
     await scenario("grounded_three_rounds", [search, evidence, final])
-    await scenario("repeat_search_without_evidence_denied", [search, search, final], "evidence_required")
+    await scenario("repeat_search_recovers_scoped_evidence", [search, search, final])
+    recovery_trace = {}
+    recovery_queue = iter([search, search, final])
+
+    async def repeat_complete(*args):
+        return next(recovery_queue)
+
+    await model_agent.run("synthetic query", uid, [], recovery_trace, repeat_complete)
+    recovery_tools = recovery_trace["tools"]
+    rows.append({"case": "server_recovery_is_bounded_and_observable", "passed":
+        len(recovery_tools) == 2
+        and recovery_tools[1].get("actor") == "server_recovery"
+        and recovery_tools[1]["arguments"] == {"item_id": item_id}
+        and recovery_trace["skipped_tools"][0]["recovery_count"] == 1})
     await scenario(
         "found_candidates_cannot_claim_no_evidence",
         [search, response(answer={"answer": "none"})],
