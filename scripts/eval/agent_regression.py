@@ -458,6 +458,15 @@ async def evaluate():
         item_id in {item["id"] for item in isolated_items}
         and foreign_id not in {item["id"] for item in isolated_items}
         and all(item["watch_id"] == "esports:cs2" for item in isolated_items)})
+    mixed = await SearchItems(uid, query_view="all").execute(limit=2, view="news")
+    rows.append({"case": "mixed_query_budget_preserves_news_and_matches", "passed":
+        len(mixed) == 2 and {item["content_kind"] == "match" for item in mixed} == {True, False}})
+    comparison_small = await SearchItems(
+        comparison_uid, query_watch_ids=["esports:cs2", "gold:london"]
+    ).execute(limit=2, watch_id="esports:cs2")
+    rows.append({"case": "multi_object_budget_preserves_each_object", "passed":
+        len(comparison_small) == 2
+        and {item["watch_id"] for item in comparison_small} == {"esports:cs2", "gold:london"}})
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,

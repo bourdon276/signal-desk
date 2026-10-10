@@ -98,6 +98,25 @@ class SearchItems(Tool):
                 ]
             if watch_ids is not None:
                 items = [item for item in items if set(item["matched_watch_ids"] + [item["watch_id"]]) & set(watch_ids)]
+            if view == "all" or (self.query_watch_ids and len(self.query_watch_ids) > 1):
+                # Preserve ranking within each bucket; cover requested objects and
+                # news/matches before allowing one bucket to fill the small context.
+                targets = self.query_watch_ids or watch_ids or ([watch_id] if watch_id else [None])
+                kinds = [False, True] if view == "all" else [view == "matches"]
+                buckets = [[item for item in items if
+                    (target is None or target in item["matched_watch_ids"] + [item["watch_id"]])
+                    and (item["content_kind"] == "match") == is_match
+                ] for target in targets for is_match in kinds]
+                selected, seen = [], set()
+                while len(selected) < limit and any(buckets):
+                    for bucket in buckets:
+                        while bucket and bucket[0]["id"] in seen:
+                            bucket.pop(0)
+                        if bucket and len(selected) < limit:
+                            row = bucket.pop(0)
+                            seen.add(row["id"])
+                            selected.append(row)
+                items = selected
             return [
                 {
                     "id": item["id"],
