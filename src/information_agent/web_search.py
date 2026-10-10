@@ -36,7 +36,7 @@ KIND = "web_news_search_sync"
 FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market"}
 TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg",
                 "dust2.com.br", "news.wmpvp.com", "5eplay.com"]
-SEARCH_POLICY_VERSION = "entity-news-v6-personal-focus"
+SEARCH_POLICY_VERSION = "entity-news-v7-index-name-only"
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 
 
@@ -82,7 +82,8 @@ def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
         suffix = {
             "financial": "财报 业绩", "macro": "宏观 经济 政策 新闻", "market": "市场 动态 新闻",
         }.get(focus, "新闻")
-        query = f"{name} {target['watch_id'].rsplit(':', 1)[-1]} {suffix}"
+        query = (f"{name} {suffix}" if target["kind"] == "index"
+                 else f"{name} {target['watch_id'].rsplit(':', 1)[-1]} {suffix}")
         return query, STOCK_DOMAINS
     suffix = {"roster": "roster transfer", "interview": "interview"}.get(focus, "news")
     return f"{name} CS2 {suffix}", TEAM_DOMAINS
@@ -122,6 +123,10 @@ def normalize_result(row, target, domains, now):
     if not url:
         return None, "unapproved_url"
     parts = urlsplit(url)
+    if target["kind"] in {"stock", "index"} and (
+        host == "quote.eastmoney.com" or (host == "egs.stcn.com" and parts.path.startswith("/quotation/"))
+    ):
+        return None, "not_news_article"
     query = [
         (k, v) for k, v in parse_qsl(parts.query) if not k.lower().startswith("utm_") and k not in {"fbclid", "gclid"}
     ]

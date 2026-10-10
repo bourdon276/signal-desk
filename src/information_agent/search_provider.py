@@ -29,6 +29,7 @@ class TavilyProvider:
             "chunks_per_source": 1,
             "time_range": "month",
             "include_domains": domains,
+            "exclude_domains": ["quote.eastmoney.com", "egs.stcn.com"],
             "include_domains_mode": "restrict",
             "include_published_date": True,
             # Keep undated candidates for approved publisher metadata recovery.
