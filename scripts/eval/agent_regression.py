@@ -153,6 +153,39 @@ async def evaluate():
     rows.append(
         {"case": "evidence_stage_exposes_only_evidence_tool", "passed": captured_definitions[1] == ["get_evidence"]}
     )
+    from datetime import UTC, datetime
+    from unittest.mock import patch
+
+    window_cases = [
+        (
+            "rolling_window_beijing_context_keeps_start_day_and_time",
+            (datetime(2026, 9, 10, 14, 52, 40, tzinfo=UTC), datetime(2026, 10, 10, 14, 52, 40, tzinfo=UTC)),
+            {"since": "2026-09-10T22:52:40+08:00", "until": "2026-10-10T22:52:40+08:00"},
+        ),
+        (
+            "window_beijing_context_crosses_utc_midnight",
+            (datetime(2026, 10, 8, 16, tzinfo=UTC), datetime(2026, 10, 9, 16, tzinfo=UTC)),
+            {"since": "2026-10-09T00:00:00+08:00", "until": "2026-10-10T00:00:00+08:00"},
+        ),
+        ("unspecified_window_context_keeps_null_bounds", (None, None), {"since": None, "until": None}),
+    ]
+    for case_name, bounds, expected_window in window_cases:
+        contexts = []
+
+        async def window_complete(client, messages, definitions, final_round):
+            contexts.append(json.loads(messages[1]["content"]))
+            return response(answer={"answer": "No evidence", "evidence_ids": []})
+
+        window_trace = {}
+        with patch.object(model_agent, "query_window", return_value=bounds):
+            await model_agent.run("synthetic window query", other_uid, [], window_trace, window_complete)
+        rows.append({"case": case_name, "passed":
+            contexts[0]["time_window_beijing"] == expected_window
+            and window_trace["time_window_beijing"] == expected_window
+            and contexts[0]["time_window"] == {
+                "since": bounds[0].isoformat() if bounds[0] else None,
+                "until": bounds[1].isoformat() if bounds[1] else None,
+            }})
     await scenario(
         "no_evidence_cannot_invent_answer",
         [response(answer={"answer": "invented", "evidence_ids": []})],

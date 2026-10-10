@@ -34,7 +34,11 @@ search_items 默认只查近30天新闻；查询比赛用 view=matches，新闻�
 查询采访用news_kind=interview，转会用roster，财报用financial。
 同event_key的记录属于同一事件的不同来源，合并叙述并保留引用，不把转载计作另一次采访。
 exact_title_same_day只表示标题一致的分组；不能据此声称已核实转载关系。不同来源发布时间不等于不同采访时间。
+同一事件不代表同日采访。没有明确采访发生日期时，不说“同日采访”“当天采访”。
+不同来源published_at_beijing日期不一致时，不说“同日另一来源”；日期一致也只能说“同日发布”。
 时间窗若包含未来赛程，分别写过去赛果与未来待赛；不能把未来窗口终点当成当前日期或过去7天截止日。
+查询范围以time_window_beijing的精确起止时间为准；近30天是滚动时间窗，不自行改算为30个自然日。
+描述窗口时保留北京时间起止时间；未指定边界为null时不虚构边界，也可以省略窗口日期。
 回答日期统一使用published_at_beijing（北京时间）；published_at保留原始时区，不要直接截取其日期。
 工具时间是收录的发布时间或比赛时间，不能推断为采访发生时间；时间未知时明确未知。
 事件标识仅供内部判断；回答不输出event_key、数据库ID或verified等内部标识。
@@ -163,6 +167,10 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
         "since": since.isoformat() if since else None,
         "until": until.isoformat() if until else None,
     }
+    trace["time_window_beijing"] = {
+        "since": since.astimezone(ZoneInfo("Asia/Shanghai")).isoformat() if since else None,
+        "until": until.astimezone(ZoneInfo("Asia/Shanghai")).isoformat() if until else None,
+    }
     filters = query_filters(question)
     trace["query_filters"] = filters
     enabled = {watch["id"] for watch in watches}
@@ -186,6 +194,7 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
                     "question": question,
                     "watches": watches,
                     "time_window": trace["time_window"],
+                    "time_window_beijing": trace["time_window_beijing"],
                     "current_time_beijing": now_utc().astimezone(ZoneInfo("Asia/Shanghai")).isoformat(),
                 },
                 ensure_ascii=False,
