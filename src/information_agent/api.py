@@ -19,12 +19,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from information_agent import model_agent, translation
+from information_agent.acquisition_preferences import acquisition_profile
 from information_agent.agent_tools import SearchNews, news_age_label, scoped_registry
 from information_agent.config import settings
 from information_agent.db import get_db
-from information_agent.domain import WATCHES, resolve_watch_ids, valid_watch
+from information_agent.domain import INDEX_NAMES, STOCK_NAMES, WATCHES, resolve_watch_ids, valid_watch
 from information_agent.entities import canonical_team_name, is_team_watch_id, team_watch_id
 from information_agent.ingest_common import store_item
+from information_agent.ingest_eastmoney import article_url as eastmoney_url
+from information_agent.ingest_eastmoney import read_article as read_eastmoney
 from information_agent.ingest_perfect_news import read_article, reserve_import, share_news_id
 from information_agent.ingest_team_news import mentions_team
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
@@ -36,7 +39,7 @@ from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
 from information_agent.sync_worker import request_sync
-from information_agent.web_search import FOCUSES, targets
+from information_agent.web_search import FOCUSES, STOCK_DOMAINS, normalize_result, targets
 
 router = APIRouter(prefix="/api")
 
@@ -92,12 +95,33 @@ class TopicInput(BaseModel):
     name: str = Field(default="", max_length=60)
     keywords: list[str] = Field(default_factory=list, max_length=5)
     stock_code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
+    asset_type: Literal["stock", "index"] = "stock"
     team_name: str | None = Field(default=None, min_length=2, max_length=60)
 
 
 class ReadingInput(BaseModel):
     item_id: str
     read: bool
+
+
+@router.post("/topics/{topic_id}/as-index")
+def convert_index(topic_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    topic = db.scalar(select(Topic).where(Topic.id == topic_id, Topic.user_id == user.id))
+    if topic is None:
+        raise HTTPException(status_code=404, detail="关注不存在")
+    if json.loads(topic.keywords) != ["stock:000001"]:
+        raise HTTPException(status_code=422, detail="此操作仅用于将000001改为上证指数")
+    duplicate = any("index:sh:000001" in json.loads(other.keywords) for other in db.scalars(
+        select(Topic).where(Topic.user_id == user.id, Topic.id != topic_id)
+    ))
+    if duplicate:
+        raise HTTPException(status_code=409, detail="你已添加上证指数，请取消旧的股票关注")
+    topic.name = "上证指数"
+    topic.keywords = '["index:sh:000001"]'
+    db.commit()
+    if settings.sync_in_web and search_configured():
+        request_sync("web_news")
+    return {"id": topic.id, "name": topic.name}
 
 
 @router.get("/topics")
@@ -110,6 +134,7 @@ def list_topics(user: User = Depends(current_user), db: Session = Depends(get_db
                 "name": t.name,
                 "keywords": json.loads(t.keywords),
                 "stock_code": next((k[6:] for k in json.loads(t.keywords) if re.fullmatch(r"stock:[0-9]{6}", k)), None),
+                "index_code": next((k.rsplit(":", 1)[-1] for k in json.loads(t.keywords) if k in INDEX_NAMES), None),
                 "team_name": t.name if any(is_team_watch_id(k) for k in json.loads(t.keywords)) else None,
                 "team_watch_id": next((k for k in json.loads(t.keywords) if is_team_watch_id(k)), None),
             }
@@ -123,8 +148,14 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
     if payload.stock_code and payload.team_name:
         raise HTTPException(status_code=422, detail="一次只能创建一种对象关注")
     if payload.stock_code:
-        name = payload.name.strip() or f"股票 {payload.stock_code}"
-        keywords = [f"stock:{payload.stock_code}"]
+        if payload.asset_type == "index":
+            marker = next((key for key in INDEX_NAMES if key.endswith(":" + payload.stock_code)), None)
+            if marker is None:
+                raise HTTPException(status_code=422, detail="目前支持上证指数000001、深证成指399001和创业板指399006")
+            name, keywords = payload.name.strip() or INDEX_NAMES[marker], [marker]
+        else:
+            name = payload.name.strip() or STOCK_NAMES.get(payload.stock_code, f"股票 {payload.stock_code}")
+            keywords = [f"stock:{payload.stock_code}"]
     elif payload.team_name:
         name = payload.name.strip() or payload.team_name.strip()
         keywords = [team_watch_id(payload.team_name)]
@@ -149,7 +180,7 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
     db.add(Watch(user_id=user.id, watch_id=topic.id))
     db.commit()
     sync_queued = False
-    if settings.sync_in_web and payload.stock_code:
+    if settings.sync_in_web and payload.stock_code and payload.asset_type == "stock":
         sync_queued = request_sync("stock_announcements")
     elif settings.sync_in_web and payload.team_name:
         sync_queued = request_sync("cs2_team_matches")
@@ -201,11 +232,17 @@ def require_admin(token: str | None) -> None:
 
 
 @router.get("/catalog")
-def catalog() -> dict:
+def catalog(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    owned = set(db.scalars(select(Watch.watch_id).where(Watch.user_id == user.id)))
     return {
-        "watches": [{"id": key, "name": value} for key, value in WATCHES.items()],
+        "watches": [{"id": key, "name": value} for key, value in WATCHES.items() if key in owned],
         "automatic_source": {"gold:london": "美联储货币政策 RSS", "team:cs2": "PandaScore CS2 赛程与结果"},
     }
+
+
+@router.get("/preferences")
+def preferences(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    return {"watches": acquisition_profile(db, user.id)}
 
 
 @router.get("/sources")
@@ -308,6 +345,8 @@ def add_feedback(payload: FeedbackInput, user: User = Depends(current_user), db:
     event = Feedback(user_id=user.id, item_id=item.id, action=payload.action, reason=payload.reason)
     db.add(event)
     db.commit()
+    if payload.reason == "content_type" and settings.sync_in_web and search_configured():
+        request_sync("web_news")
     return {"id": event.id, "action": event.action, "created_at": event.created_at.isoformat()}
 
 
@@ -340,6 +379,25 @@ def undo_feedback(feedback_id: str, user: User = Depends(current_user), db: Sess
         event.undone_at = now_utc()
         db.commit()
     return {"id": event.id, "undone": True}
+
+
+@router.get("/desk")
+def desk(
+    view: Literal["news", "matches", "all"] = "news",
+    watch_id: str | None = Query(default=None, max_length=64),
+    news_kind: Literal["all", "interview", "roster", "financial"] = "all",
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """One authenticated round-trip for the first useful screen; no external I/O."""
+    return {
+        "watches": list_watches(user, db),
+        "feed": feed(view, watch_id, news_kind, 100, user, db),
+        "feedback": list_feedback(user, db),
+        "topics": list_topics(user, db),
+        "catalog": catalog(user, db),
+        "preferences": preferences(user, db),
+    }
 
 
 @router.post("/admin/items", status_code=201)
@@ -424,8 +482,34 @@ async def search_news(payload: SearchInput, user: User = Depends(current_user)) 
 @router.post("/shared-news")
 def import_shared_news(payload: SharedNewsInput, user: User = Depends(current_user), db: Session = Depends(get_db)):
     target = targets(db, user.id).get(payload.watch_id)
-    if target is None or target["kind"] != "team":
-        raise HTTPException(status_code=403, detail="请选择你已关注的CS2战队")
+    if target is None:
+        raise HTTPException(status_code=403, detail="请选择你自己的股票、指数或CS2战队关注")
+    if target["kind"] in {"stock", "index"}:
+        try:
+            url = eastmoney_url(payload.url.strip())
+        except ValueError:
+            raise HTTPException(status_code=422, detail="请粘贴东方财富财经或股票频道的文章链接") from None
+        if not reserve_import(db, user.id):
+            raise HTTPException(status_code=429, detail="文章读取额度已达上限，明天再试")
+        try:
+            with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
+                row = read_eastmoney(client, url)
+        except Exception:
+            raise HTTPException(status_code=502, detail="公开文章暂时无法读取，已有消息保留") from None
+        values, reason = normalize_result(row, target, STOCK_DOMAINS, now_utc())
+        if reason:
+            raise HTTPException(status_code=422, detail="文章未匹配当前对象或不在近30天；请核对股票/指数身份")
+        values.update(ingestion_mode="manual", summary="原文短摘录（日期取自文章链接）：" + row["content"])
+        created = store_item(db, **values)
+        item = db.scalar(select(Item).where(Item.canonical_url == url))
+        if item is None or item.watch_id != target["watch_id"]:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="该文章已归入其他对象，暂不支持多对象关联")
+        run = AgentRun(user_id=user.id, kind="eastmoney_share_import", status="success",
+                       item_count=int(created), detail=json.dumps({"created": int(created)}), finished_at=now_utc())
+        db.add(run)
+        db.commit()
+        return {"title": item.title, "created": bool(created), "run_id": run.id}
     try:
         news_id = share_news_id(payload.url.strip())
     except ValueError:

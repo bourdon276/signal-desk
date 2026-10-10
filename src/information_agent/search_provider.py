@@ -15,7 +15,7 @@ class SearchProvider(Protocol):
 
 
 class TavilyProvider:
-    cache_namespace = "tavily-basic-v2-topic"
+    cache_namespace = "tavily-basic-v3-12-results"
 
     async def search(self, query: str, domains: list[str], *, topic: str = "general") -> list[dict]:
         if topic not in {"general", "news"}:
@@ -25,13 +25,15 @@ class TavilyProvider:
             "topic": topic,
             "search_depth": "basic",
             "auto_parameters": False,
-            "max_results": 8,
+            "max_results": 12,
             "chunks_per_source": 1,
             "time_range": "month",
             "include_domains": domains,
             "include_domains_mode": "restrict",
             "include_published_date": True,
-            "filter_by_published_date": True,
+            # Keep undated candidates for approved publisher metadata recovery.
+            # normalize_result still requires a date inside the last 30 days.
+            "filter_by_published_date": False,
             "include_answer": False,
             "include_raw_content": False,
             "include_images": False,
@@ -57,7 +59,7 @@ class TavilyProvider:
         if type(credits) is not int or credits != 1:
             # The fixed basic request must not silently change its cost contract.
             raise RuntimeError("search_credit_contract")
-        return result["results"][:8]
+        return result["results"][:12]
 
 
 def configured() -> bool:

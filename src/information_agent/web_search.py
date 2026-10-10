@@ -11,15 +11,19 @@ from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from information_agent.acquisition_preferences import acquisition_profile, preferred_focus
 from information_agent.config import settings
 from information_agent.db import SessionLocal
-from information_agent.domain import WATCHES
+from information_agent.domain import INDEX_NAMES, STOCK_NAMES
 from information_agent.entities import canonical_team_name, is_team_watch_id
 from information_agent.ingest_common import safe_link, store_item
+from information_agent.ingest_eastmoney import article_url as eastmoney_url
+from information_agent.ingest_eastmoney import read_article as read_eastmoney
 from information_agent.ingest_fed import brief_text
 from information_agent.ingest_team_news import mentions_team
 from information_agent.models import AgentRun, Item, SearchBudget, SearchCache, Topic, Watch, now_utc
@@ -29,9 +33,10 @@ from information_agent.preferences import content_kind
 from information_agent.search_provider import configured, provider
 
 KIND = "web_news_search_sync"
-FOCUSES = {"recent", "roster", "interview", "financial"}
-TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg"]
-SEARCH_POLICY_VERSION = "team-news-v5-news-diagnostics"
+FOCUSES = {"auto", "recent", "roster", "interview", "financial"}
+TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg",
+                "dust2.com.br", "news.wmpvp.com", "5eplay.com"]
+SEARCH_POLICY_VERSION = "entity-news-v6-personal-focus"
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 
 
@@ -47,11 +52,17 @@ def targets(db, user_id: str | None = None) -> dict[str, dict]:
     result = {}
     for marker in sorted(enabled):
         if re.fullmatch(r"stock:[0-9]{6}", marker):
-            result[marker] = {"watch_id": marker, "name": WATCHES.get(marker, marker[6:]), "kind": "stock"}
+            result[marker] = {"watch_id": marker, "name": STOCK_NAMES.get(marker[6:], marker[6:]), "kind": "stock"}
+        elif marker in INDEX_NAMES:
+            result[marker] = {"watch_id": marker, "name": INDEX_NAMES[marker], "kind": "index"}
     for topic in topics:
         for marker in json.loads(topic.keywords):
             if re.fullmatch(r"stock:[0-9]{6}", marker):
-                result[topic.id] = {"watch_id": marker, "name": WATCHES.get(marker, marker[6:]), "kind": "stock"}
+                result[topic.id] = {
+                    "watch_id": marker, "name": STOCK_NAMES.get(marker[6:], marker[6:]), "kind": "stock",
+                }
+            elif marker in INDEX_NAMES:
+                result[topic.id] = {"watch_id": marker, "name": INDEX_NAMES[marker], "kind": "index"}
             elif is_team_watch_id(marker):
                 slug = marker.removeprefix("team:cs2:")
                 # Recover public names from canonical IDs, never send private custom labels.
@@ -67,8 +78,9 @@ def targets(db, user_id: str | None = None) -> dict[str, dict]:
 
 def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
     name = re.sub(r"[^\w .-]", " ", target["name"])[:60]
-    if target["kind"] == "stock":
-        query = f"{name} {target['watch_id'][6:]} 股票 公司 公告 财报 新闻"
+    if target["kind"] in {"stock", "index"}:
+        suffix = "财报 业绩" if focus == "financial" else "新闻"
+        query = f"{name} {target['watch_id'].rsplit(':', 1)[-1]} {suffix}"
         return query, STOCK_DOMAINS
     suffix = {"roster": "roster transfer", "interview": "interview", "recent": "news", "financial": "news"}[focus]
     return f"{name} CS2 {suffix}", TEAM_DOMAINS
@@ -117,15 +129,34 @@ def normalize_result(row, target, domains, now):
     if not title:
         return None, "missing_title"
     stamp = timestamp(row.get("published_date"))
+    # Approved Eastmoney article paths embed the publisher's calendar date.
+    # This is an estimated date, not a verified article timestamp.
+    if stamp is None and (host == "eastmoney.com" or host.endswith(".eastmoney.com")):
+        date_match = re.fullmatch(r"/a/(\d{8})\d+\.html", parts.path)
+        if date_match:
+            try:
+                stamp = datetime.strptime(date_match[1], "%Y%m%d").replace(
+                    tzinfo=ZoneInfo("Asia/Shanghai")
+                ).astimezone(UTC)
+            except ValueError:
+                pass
     if stamp is None:
         return None, "missing_date"
     if not now - timedelta(days=30) <= stamp <= now:
         return None, "outside_30_days"
     text = title + " " + excerpt
-    if target["kind"] == "stock":
-        code = target["watch_id"][6:]
+    if target["kind"] in {"stock", "index"}:
+        code = target["watch_id"].rsplit(":", 1)[-1]
         matched = re.search(r"(?<!\d)" + code + r"(?!\d)", text)
-        known_name = WATCHES.get(target["watch_id"])
+        known_name = target["name"] if target["name"] != code else None
+        if code == "000001":
+            # SZ stock and SH index share six digits: a code alone is ambiguous.
+            identity = (
+                r"上证(?:综合)?指数|上证综指" if target["kind"] == "index"
+                else r"平安银行|(?:SZ|深圳)\s*000001|000001\s*\.SZ"
+            )
+            if not re.search(identity, text, re.I):
+                return None, "entity_mismatch"
         if not matched and not (known_name and known_name in text):
             return None, "entity_mismatch"
     else:
@@ -227,6 +258,9 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         return {"status": "not_configured", "results": [], "search_credits": 0}
     if focus not in FOCUSES:
         return {"status": "unsupported_focus", "results": [], "search_credits": 0}
+    requested_focus = focus
+    if focus == "auto":
+        focus = preferred_focus(target["kind"], target.get("preference", {}))
     query, domains = request_spec(target, focus)
     adapter = provider()
     key = hashlib.sha256(
@@ -234,18 +268,43 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
     ).hexdigest()
     cached, token = claim(key, user_id)
     if cached is not None:
-        return cached
+        return {**cached, "requested_focus": requested_focus, "effective_focus": focus}
     # Reservations count attempted requests, including uncertain failures; no automatic retries.
     with SessionLocal() as db:
         run = AgentRun(user_id=user_id, kind=KIND, status="running", detail="")
         db.add(run)
         db.commit()
         run_id = run.id
-    result = {"status": "failure", "results": [], "search_credits": 1, "cache_hit": False}
+    result = {"status": "failure", "results": [], "search_credits": 1, "cache_hit": False,
+              "effective_focus": focus}
     try:
         # Sports news uses the provider's article-oriented index; stock PDFs retain general search.
         topic = "news" if target["kind"] == "team" else "general"
-        rows = (await asyncio.wait_for(adapter.search(query, domains, topic=topic), timeout=15))[:8]
+        rows = (await asyncio.wait_for(adapter.search(query, domains, topic=topic), timeout=15))[:12]
+        enriched = 0
+        if target["kind"] in {"stock", "index"}:
+            # Search snippets can omit the named entity or publication date.
+            # Read at most three approved publisher pages, without redirects.
+            candidates = []
+            for position, row in enumerate(rows):
+                _, reason = normalize_result(row, target, domains, now_utc())
+                if reason not in {"entity_mismatch", "missing_date"} or not isinstance(row, dict):
+                    continue
+                try:
+                    url = eastmoney_url(row.get("url", ""))
+                except (ValueError, TypeError):
+                    continue
+                candidates.append((position, url))
+            for position, url in candidates[:3]:
+                def read_public_page(url=url):
+                    with httpx.Client(timeout=3, follow_redirects=False, trust_env=False) as client:
+                        return read_eastmoney(client, url)
+                try:
+                    rows[position] = await asyncio.wait_for(asyncio.to_thread(read_public_page), timeout=4)
+                    enriched += 1
+                except Exception:
+                    # Preserve diagnostics from the original search result on read failure.
+                    continue
         dropped, ids, created, rejected = {}, [], 0, []
         with SessionLocal() as db:
             for row in rows:
@@ -279,6 +338,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
             dropped=dropped,
             rejected=rejected,
             search_topic=topic,
+            metadata_enriched=enriched,
         )
     except asyncio.CancelledError:
         result["error_type"] = "cancelled"
@@ -306,24 +366,33 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
             run.finished_at = now
             run.detail = json.dumps({k: v for k, v in result.items() if k != "results"})
             db.commit()
-    return result
+    return {**result, "requested_focus": requested_focus}
 
 
 def sync() -> dict:
     if not configured():
         return {"status": "not_configured", "search_credits": 0}
     with SessionLocal() as db:
-        unique = {value["watch_id"]: value for value in targets(db).values()}
+        unique = {(value["watch_id"], "recent"): (value, "recent") for value in targets(db).values()}
+        # Personalized public entity/type plans share cache, never account metadata.
+        for user_id in sorted(set(db.scalars(select(Watch.user_id)))):
+            profile = acquisition_profile(db, user_id)
+            for watch_id, value in targets(db, user_id).items():
+                focus = preferred_focus(value["kind"], profile.get(watch_id, {}))
+                if focus != "recent":
+                    unique[(value["watch_id"], focus)] = (value, focus)
         today = now_utc().astimezone(ZoneInfo("Asia/Shanghai"))
         used = db.get(SearchBudget, "day:" + today.strftime("%Y-%m-%d"))
         # Daily deterministic rotation avoids starving later subscriptions under a small global cap.
         remaining = max(0, settings.search_day_credit_limit - (used.credits if used else 0))
     ordered = sorted(
-        unique.values(), key=lambda r: hashlib.sha256((today.strftime("%Y-%m-%d") + r["watch_id"]).encode()).hexdigest()
+        unique.values(), key=lambda r: hashlib.sha256(
+            (today.strftime("%Y-%m-%d") + r[0]["watch_id"] + r[1]).encode()
+        ).hexdigest()
     )
     results = []
-    for target in ordered[: min(remaining, 10)]:
-        results.append(asyncio.run(discover(target)))
+    for target, focus in ordered[: min(remaining, 10)]:
+        results.append(asyncio.run(discover(target, focus)))
         if results[-1]["status"] == "budget_exhausted":
             break
     return {"status": "completed", "targets": len(results), "search_credits": sum(r["search_credits"] for r in results)}

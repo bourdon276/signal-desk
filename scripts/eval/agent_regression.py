@@ -500,6 +500,78 @@ async def evaluate():
     rows.append({"case": "multi_object_budget_preserves_each_object", "passed":
         len(comparison_small) == 2
         and {item["watch_id"] for item in comparison_small} == {"esports:cs2", "gold:london"}})
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from information_agent.acquisition_preferences import acquisition_profile, preferred_focus
+    from information_agent.api import router
+    from information_agent.models import Topic
+    from information_agent.security import issue_token
+    from information_agent.web_search import STOCK_DOMAINS, normalize_result, targets
+
+    app = FastAPI()
+    app.include_router(router)
+    api_client = TestClient(app)
+    headers_a = {"Authorization": "Bearer " + issue_token(uid)}
+    headers_b = {"Authorization": "Bearer " + issue_token(other_uid)}
+    index_response = api_client.post("/api/topics", headers=headers_a, json={
+        "stock_code": "000001", "asset_type": "index",
+    })
+    index_topic = index_response.json()
+    rows.append({"case": "index_subscription_has_distinct_canonical_identity", "passed":
+        index_response.status_code == 201 and index_topic["keywords"] == ["index:sh:000001"]})
+    foreign_update = api_client.put("/api/watches", headers=headers_b, json={
+        "watch_id": index_topic["id"], "enabled": True,
+    })
+    desk_a = api_client.get("/api/desk", headers=headers_a).json()
+    desk_b = api_client.get("/api/desk", headers=headers_b).json()
+    rows.append({"case": "desk_and_watch_options_keep_custom_accounts_isolated", "passed":
+        foreign_update.status_code == 422
+        and index_topic["id"] in desk_a["watches"]["watch_ids"]
+        and index_topic["id"] not in desk_b["watches"]["watch_ids"]
+        and not desk_b["topics"]["topics"]
+        and all(entry["id"] in desk_b["watches"]["watch_ids"] for entry in desk_b["catalog"]["watches"])})
+    rows.append({"case": "desk_requires_authentication", "passed":
+        api_client.get("/api/desk").status_code == 401
+        and api_client.get("/api/preferences").status_code == 401})
+    index_target = {"watch_id": "index:sh:000001", "name": "上证指数", "kind": "index"}
+    bank_target = {"watch_id": "stock:000001", "name": "平安银行", "kind": "stock"}
+    article_row = {"title": "上证指数ETF资金流入", "content": "上证综合指数(000001)消息",
+                   "url": "https://finance.eastmoney.com/a/202610083889579373.html"}
+    frozen_now = datetime(2026, 10, 11, 0, tzinfo=UTC)
+    indexed, index_reason = normalize_result(article_row, index_target, STOCK_DOMAINS, frozen_now)
+    banked, bank_reason = normalize_result(article_row, bank_target, STOCK_DOMAINS, frozen_now)
+    rows.append({"case": "eastmoney_url_date_recovers_index_but_rejects_same_code_bank", "passed":
+        index_reason is None and indexed["watch_id"] == "index:sh:000001"
+        and indexed["published_at"].isoformat() == "2026-10-07T16:00:00+00:00"
+        and banked is None and bank_reason == "entity_mismatch"})
+    with SessionLocal() as db:
+        pref_topic = Topic(user_id=uid, name="Synthetic private team label", keywords='["team:cs2:team-spirit"]')
+        db.add(pref_topic)
+        db.flush()
+        db.add(Watch(user_id=uid, watch_id=pref_topic.id))
+        interview = Item(watch_id="team:cs2:team-spirit", title="donk interview", source_name="Synthetic 战队新闻",
+                         source_type="media", ingestion_mode="manual", event_key="preference-fixture",
+                         canonical_url="https://example.invalid/preference-interview", published_at=now_utc())
+        db.add(interview)
+        db.flush()
+        interest = Feedback(user_id=uid, item_id=interview.id, action="interested", reason="content_type")
+        db.add(interest)
+        db.commit()
+        profile_a, profile_b = acquisition_profile(db, uid), acquisition_profile(db, other_uid)
+        rows.append({"case": "positive_feedback_steers_only_owner_acquisition", "passed":
+            preferred_focus("team", profile_a[pref_topic.id]) == "interview"
+            and pref_topic.id not in profile_b
+            and targets(db, uid)[pref_topic.id]["name"] == "Team Spirit"})
+        interest.undone_at = now_utc()
+        db.commit()
+        rows.append({"case": "feedback_undo_restores_broad_acquisition", "passed":
+            preferred_focus("team", acquisition_profile(db, uid)[pref_topic.id]) == "recent"})
+        db.add(Feedback(user_id=uid, item_id=interview.id, action="not_interested", reason="content_type"))
+        db.commit()
+        rows.append({"case": "negative_interview_feedback_explores_roster_without_erasing_library", "passed":
+            preferred_focus("team", acquisition_profile(db, uid)[pref_topic.id]) == "roster"
+            and db.get(Item, interview.id) is not None})
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,

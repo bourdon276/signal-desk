@@ -21,7 +21,7 @@ def matches(item, enabled, topics):
     for topic in topics:
         if any(
             item.watch_id == keyword
-            if re.fullmatch(r"stock:[0-9]{6}", keyword) or is_team_watch_id(keyword)
+            if re.fullmatch(r"(?:stock:|index:(?:sh|sz):)[0-9]{6}", keyword) or is_team_watch_id(keyword)
             else keyword.casefold() in text
             for keyword in json.loads(topic.keywords)
         ):
@@ -33,7 +33,7 @@ def candidate_filter(enabled, topics):
     clauses = [Item.watch_id.in_(enabled)]
     for topic in topics:
         for keyword in json.loads(topic.keywords):
-            if re.fullmatch(r"stock:[0-9]{6}", keyword) or is_team_watch_id(keyword):
+            if re.fullmatch(r"(?:stock:|index:(?:sh|sz):)[0-9]{6}", keyword) or is_team_watch_id(keyword):
                 clauses.append(Item.watch_id == keyword)
                 continue
             pattern = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"

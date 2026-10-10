@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 
+from information_agent.acquisition_preferences import acquisition_profile
 from information_agent.db import SessionLocal
 from information_agent.event_identity import event_identity
 from information_agent.models import Item
@@ -217,6 +218,8 @@ class SearchNews(Tool):
     async def execute(self, watch_id: str, focus: str):
         with SessionLocal() as db:
             target = targets(db, self.user_id).get(watch_id)
+            if target is not None and focus == "auto":
+                target["preference"] = acquisition_profile(db, self.user_id).get(watch_id, {})
         if target is None:
             return {"status": "outside_supported_scope", "results": [], "search_credits": 0}
         result = await discover(target, focus, self.user_id)

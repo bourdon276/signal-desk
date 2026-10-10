@@ -16,6 +16,9 @@ WATCH_ALIASES = {
     "esports:valorant": ("无畏契约", "valorant", "瓦罗兰特"),
 }
 
+STOCK_NAMES = {"000001": "平安银行", "002491": "通鼎互联", "002296": "辉煌科技"}
+INDEX_NAMES = {"index:sh:000001": "上证指数", "index:sz:399001": "深证成指", "index:sz:399006": "创业板指"}
+
 
 def resolve_watch_ids(question: str) -> list[str]:
     normalized = question.lower()
