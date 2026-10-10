@@ -572,6 +572,26 @@ async def evaluate():
         rows.append({"case": "negative_interview_feedback_explores_roster_without_erasing_library", "passed":
             preferred_focus("team", acquisition_profile(db, uid)[pref_topic.id]) == "roster"
             and db.get(Item, interview.id) is not None})
+    from sqlalchemy import select
+
+    from information_agent.ingest_common import store_item
+
+    with SessionLocal() as db:
+        legacy_index = Item(watch_id="stock:000001", title="上证指数ETF资金流入",
+                            canonical_url="https://finance.eastmoney.com/a/202610083889579373.html",
+                            source_name="Synthetic", source_type="media", ingestion_mode="search",
+                            published_at=frozen_now, event_key="legacy-index")
+        db.add(legacy_index)
+        db.flush()
+        legacy_id = legacy_index.id
+        db.add(Feedback(user_id=uid, item_id=legacy_id, action="interested", reason="hide_only"))
+        db.commit()
+        inserted = store_item(db, **indexed)
+        db.commit()
+        corrected = db.get(Item, legacy_id)
+        rows.append({"case": "legacy_index_collision_preserves_article_and_feedback_identity", "passed":
+            not inserted and corrected.watch_id == "index:sh:000001"
+            and db.scalar(select(Feedback.id).where(Feedback.item_id == legacy_id)) is not None})
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,

@@ -43,7 +43,21 @@ def safe_link(value: str, hosts: set[str]) -> str | None:
 
 def store_item(db, **values) -> bool:
     url = values["canonical_url"]
-    if db.scalar(select(Item.id).where(Item.canonical_url == url)) is not None:
+    existing = db.scalar(select(Item).where(Item.canonical_url == url))
+    if existing is not None:
+        # Repair legacy 000001 code collisions only after an approved publisher
+        # result has independently matched the distinct SH index identity.
+        host = urlsplit(url).hostname
+        if (
+            existing.watch_id == "stock:000001"
+            and values["watch_id"] == "index:sh:000001"
+            and host in {"finance.eastmoney.com", "stock.eastmoney.com"}
+            and "上证" in values["title"] and "平安银行" not in values["title"]
+        ):
+            existing.watch_id = values["watch_id"]
+            for key in ("title", "summary", "source_name", "source_type", "ingestion_mode", "published_at"):
+                setattr(existing, key, values[key])
+            db.flush()
         return False
     values["event_key"] = hashlib.sha256(url.encode()).hexdigest()[:32]
     try:

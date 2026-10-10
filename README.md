@@ -156,7 +156,7 @@ uv run uvicorn information_agent.main:app --reload
 
 “按我的兴趣搜索”根据本人有效类型反馈选择采访、转会或财报方向；后台综合采集之外增加对应方向，并继续遵守全站搜索额度。负向反馈降低推荐排序，点过的文章隐藏；撤销后恢复。共享缓存只含公开对象和方向，不含私人反馈。单次最多12个搜索候选，不代表12条一定入库；索引范围、日期、对象匹配仍可能限制供给。
 
-首屏个人数据聚合为一个请求，来源统计随后加载。52项离线合成回归通过，真实采集数量和注册耗时改善尚待生产测量。见[复盘42](docs/retrospectives/42-personal-discovery-and-account-entry.md)。
+首屏个人数据聚合为一个请求，来源统计随后加载。53项离线合成回归通过，真实采集数量和注册耗时改善尚待生产测量。见[复盘42](docs/retrospectives/42-personal-discovery-and-account-entry.md)。
 
 ## 观测与调试
 
