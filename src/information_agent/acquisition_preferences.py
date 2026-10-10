@@ -37,12 +37,14 @@ def acquisition_profile(db, user_id: str) -> dict:
 
 
 def preferred_focus(kind: str, profile: dict) -> str:
-    allowed = ("interview", "roster") if kind == "team" else ("financial",) if kind == "stock" else ()
+    allowed = {
+        "team": ("interview", "roster"), "stock": ("financial",), "index": ("macro", "market"),
+    }.get(kind, ())
     weights = profile.get("weights", {})
     positive = [focus for focus in allowed if weights.get(focus, 0) > 0]
     if positive:
         return max(positive, key=lambda focus: weights[focus])
-    if kind == "team" and any(weights.get(focus, 0) < 0 for focus in allowed):
+    if kind in {"team", "index"} and any(weights.get(focus, 0) < 0 for focus in allowed):
         alternatives = [focus for focus in allowed if weights.get(focus, 0) >= 0]
         if alternatives:
             return alternatives[0]

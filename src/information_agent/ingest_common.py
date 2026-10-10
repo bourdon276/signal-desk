@@ -48,12 +48,17 @@ def store_item(db, **values) -> bool:
         # Repair legacy 000001 code collisions only after an approved publisher
         # result has independently matched the distinct SH index identity.
         host = urlsplit(url).hostname
-        if (
+        repair_index = (
             existing.watch_id == "stock:000001"
             and values["watch_id"] == "index:sh:000001"
             and host in {"finance.eastmoney.com", "stock.eastmoney.com"}
             and "上证" in values["title"] and "平安银行" not in values["title"]
-        ):
+        )
+        refresh_publisher_excerpt = (
+            existing.watch_id == values["watch_id"] and values.get("ingestion_mode") == "manual"
+            and host in {"finance.eastmoney.com", "stock.eastmoney.com"}
+        )
+        if repair_index or refresh_publisher_excerpt:
             existing.watch_id = values["watch_id"]
             for key in ("title", "summary", "source_name", "source_type", "ingestion_mode", "published_at"):
                 setattr(existing, key, values[key])

@@ -85,7 +85,7 @@ export default function App() {
   const [asking, setAsking] = useState(false), [askError, setAskError] = useState('')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const options = [...catalog, ...topics]
-  const nameOf = (id: string) => options.find(t => t.id === id)?.name || options.find(t => (t.stock_code && `stock:${t.stock_code}` === id) || t.team_watch_id === id)?.name || id
+  const nameOf = (id: string) => options.find(t => t.id === id)?.name || options.find(t => t.keywords?.includes(id))?.name || options.find(t => (t.stock_code && `stock:${t.stock_code}` === id) || t.team_watch_id === id)?.name || id
 
   const refresh = useCallback(async (view: FeedView = feedView) => {
     if (!token) return
@@ -155,7 +155,7 @@ export default function App() {
       const labels: Record<string, string> = { not_configured: '搜索服务尚未配置，已有消息仍可阅读。', budget_exhausted: '搜索额度已达上限，稍后再试。', busy: '该对象正在搜索，请稍后刷新。', failure: '搜索未完成，已有消息仍可阅读。', outside_supported_scope: '当前仅支持已关注的 A 股或 CS2 战队。' }
       const dropped = Object.entries(r.dropped || {}).map(([reason, count]) => `${searchDropLabel(reason)} ${count} 条`).join('；')
       const detail = `搜索返回 ${r.entries ?? 0} 条，匹配入库 ${r.matched ?? 0} 条，当前可展示 ${r.eligible_count ?? r.results.length} 条。${dropped ? `过滤：${dropped}。` : ''}${r.not_visible_count ? `另有 ${r.not_visible_count} 条因当前范围、时间或个人反馈未展示。` : ''}`
-      setSearchReport({ ...report, rejected: r.rejected, pending: false, failed: r.status !== 'success', text: r.status === 'success' ? `${r.cache_hit ? '复用缓存' : '搜索完成'}。${searchFocus === 'auto' ? `本次按你的偏好搜索${({ interview: '采访', roster: '阵容与转会', financial: '财报与业绩', recent: '近期新闻' } as Record<string, string>)[r.effective_focus || 'recent']}。` : ''}${detail}摘录未核验全文。已切到新闻栏目，展示全部阅读状态。` : labels[r.status] || '搜索未完成。' })
+      setSearchReport({ ...report, rejected: r.rejected, pending: false, failed: r.status !== 'success', text: r.status === 'success' ? `${r.cache_hit ? '复用缓存' : '搜索完成'}。${searchFocus === 'auto' ? `本次按你的偏好搜索${({ interview: '采访', roster: '阵容与转会', financial: '财报与业绩', recent: '近期新闻', macro: '宏观经济', market: '指数与市场动态' } as Record<string, string>)[r.effective_focus || 'recent']}。` : ''}${detail}摘录未核验全文。已切到新闻栏目，展示全部阅读状态。` : labels[r.status] || '搜索未完成。' })
     } catch (cause) {
       if (version === searchVersion.current) setSearchReport({ ...report, text: (cause as Error).message, pending: false, failed: true })
     } finally { if (version === searchVersion.current) setBusy(false) }

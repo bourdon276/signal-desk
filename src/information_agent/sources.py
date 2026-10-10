@@ -218,6 +218,10 @@ def coverage(db, user_id):
                 if not auto
                 else "CS2 通用主题不代表已关注具体战队；请添加战队名称以接收其赛程与赛果。"
             )
+        elif topic and any(term.startswith("index:") for term in terms):
+            auto = search_configured()
+            source = {"status": "library_filter", "last_success_at": None, "last_attempt_at": None, "last_error": None}
+            note = "按指数身份收集近30天媒体新闻；支持主动搜索和东方财富文章导入，不提供实时行情。"
         elif topic and any(term.startswith("team:cs2:") for term in terms):
             auto = pandascore_configured()
             source = state(db, PANDASCORE_KIND, auto)

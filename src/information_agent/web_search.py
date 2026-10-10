@@ -33,7 +33,7 @@ from information_agent.preferences import content_kind
 from information_agent.search_provider import configured, provider
 
 KIND = "web_news_search_sync"
-FOCUSES = {"auto", "recent", "roster", "interview", "financial"}
+FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market"}
 TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg",
                 "dust2.com.br", "news.wmpvp.com", "5eplay.com"]
 SEARCH_POLICY_VERSION = "entity-news-v6-personal-focus"
@@ -79,10 +79,12 @@ def targets(db, user_id: str | None = None) -> dict[str, dict]:
 def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
     name = re.sub(r"[^\w .-]", " ", target["name"])[:60]
     if target["kind"] in {"stock", "index"}:
-        suffix = "财报 业绩" if focus == "financial" else "新闻"
+        suffix = {
+            "financial": "财报 业绩", "macro": "宏观 经济 政策 新闻", "market": "市场 动态 新闻",
+        }.get(focus, "新闻")
         query = f"{name} {target['watch_id'].rsplit(':', 1)[-1]} {suffix}"
         return query, STOCK_DOMAINS
-    suffix = {"roster": "roster transfer", "interview": "interview", "recent": "news", "financial": "news"}[focus]
+    suffix = {"roster": "roster transfer", "interview": "interview"}.get(focus, "news")
     return f"{name} CS2 {suffix}", TEAM_DOMAINS
 
 
@@ -288,7 +290,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
             candidates = []
             for position, row in enumerate(rows):
                 _, reason = normalize_result(row, target, domains, now_utc())
-                if reason not in {"entity_mismatch", "missing_date"} or not isinstance(row, dict):
+                if reason not in {None, "entity_mismatch", "missing_date"} or not isinstance(row, dict):
                     continue
                 try:
                     url = eastmoney_url(row.get("url", ""))
@@ -313,7 +315,9 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
                     dropped[reason] = dropped.get(reason, 0) + 1
                     rejected.append(rejection_detail(row, reason, domains))
                     continue
-                if focus in {"interview", "roster", "financial"} and content_kind(SimpleNamespace(**values)) != focus:
+                if focus in {"interview", "roster", "financial", "macro", "market"} and (
+                    content_kind(SimpleNamespace(**values)) != focus
+                ):
                     dropped["focus_mismatch"] = dropped.get("focus_mismatch", 0) + 1
                     rejected.append(rejection_detail(row, "focus_mismatch", domains))
                     continue

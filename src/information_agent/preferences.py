@@ -16,6 +16,8 @@ KIND_LABELS = {
     "team_news": "战队新闻",
     "prediction": "赛事预测与赔率",
     "other": "其他资讯",
+    "macro": "宏观经济",
+    "market": "指数与市场动态",
 }
 
 
@@ -27,6 +29,8 @@ def content_kind(item) -> str:
     if item.source_name == "完美世界电竞 · 战队采访":
         # Assigned by the fixed-source adapter from the publisher's structured interview tag.
         return "interview"
+    if item.watch_id.startswith("index:"):
+        return "macro" if re.search(r"宏观|美联储|利率|通胀|PMI|经济数据|货币政策", item.title, re.I) else "market"
     if item.watch_id.startswith("stock:"):
         if re.search(r"年度报告|半年度报告|季度报告|财报|业绩|financial|earnings", text):
             return "financial"
