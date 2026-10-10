@@ -433,6 +433,31 @@ async def evaluate():
             and news_exclusion("通鼎互联中标采购项目", "stock:002491", "epaper.stcn.com · 股票资讯") is None,
         }
     )
+    from information_agent.agent_tools import SearchItems
+
+    with SessionLocal() as db:
+        comparison_user = User(email="synthetic-comparison@example.invalid", password_hash="synthetic")
+        db.add(comparison_user)
+        db.flush()
+        db.add_all([
+            Watch(user_id=comparison_user.id, watch_id="esports:cs2"),
+            Watch(user_id=comparison_user.id, watch_id="gold:london"),
+        ])
+        db.commit()
+        comparison_uid = comparison_user.id
+    comparison_items = await SearchItems(
+        comparison_uid, query_watch_ids=["esports:cs2", "gold:london"]
+    ).execute(limit=5, watch_id="esports:cs2")
+    isolated_items = await SearchItems(
+        uid, query_watch_ids=["esports:cs2", "gold:london"]
+    ).execute(limit=5, watch_id="gold:london")
+    rows.append({"case": "server_query_objects_override_partial_model_selection", "passed":
+        {item_id, foreign_id}.issubset({item["id"] for item in comparison_items})
+        and len(comparison_items) <= 5})
+    rows.append({"case": "server_query_objects_keep_user_isolation", "passed":
+        item_id in {item["id"] for item in isolated_items}
+        and foreign_id not in {item["id"] for item in isolated_items}
+        and all(item["watch_id"] == "esports:cs2" for item in isolated_items)})
     report = {
         "kind": "offline_synthetic_scripted_regression",
         "real_model_calls": 0,

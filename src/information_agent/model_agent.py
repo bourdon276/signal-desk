@@ -16,6 +16,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from information_agent.agent_tools import scoped_registry
 from information_agent.config import settings
 from information_agent.db import SessionLocal
+from information_agent.domain import resolve_watch_ids
 from information_agent.models import ModelBudget, now_utc
 from information_agent.query_policy import query_filters, query_window
 
@@ -28,6 +29,8 @@ NO_EVIDENCE = "当前关注范围内没有可引用的已入库证据；这不�
 SYSTEM = """你是阅讯资讯助手。只能依据工具返回的已入库证据回答，不凭模型知识补充新闻。
 search_items 默认只查近30天新闻；查询比赛用 view=matches，新闻与比赛都要用 view=all。
 先 search_items，再 get_evidence；最多6次工具。仅处理已关注对象；不提供投资建议。
+问题涉及多个对象时逐一回答；未取回某对象证据时明确该对象未检索到，不能省略或推断其没有消息。
+只能说本次已检索证据没有某事项，不能据有限检索断言整个库或外部不存在该事项。
 查询采访用news_kind=interview，转会用roster，财报用financial。
 同event_key的记录属于同一事件的不同来源，合并叙述并保留引用，不把转载计作另一次采访。
 exact_title_same_day只表示标题一致的分组；不能据此声称已核实转载关系。不同来源发布时间不等于不同采访时间。
@@ -162,9 +165,17 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
     }
     filters = query_filters(question)
     trace["query_filters"] = filters
+    enabled = {watch["id"] for watch in watches}
+    query_watch_ids = sorted(enabled & (set(resolve_watch_ids(question)) | {
+        watch["id"] for watch in watches
+        if watch["name"].casefold() in question.casefold()
+        or (watch["id"].startswith("stock:") and watch["id"][6:] in question)
+    })) or None
+    trace["query_watch_ids"] = query_watch_ids
     registry = scoped_registry(
         user_id, since, until, allow_search=allow_search,
         news_kind=filters["news_kind"], query_view=filters["view"],
+        query_watch_ids=query_watch_ids,
     )
     messages = [
         {"role": "system", "content": SYSTEM},
@@ -366,7 +377,9 @@ async def run(question: str, user_id: str, watches: list[dict], trace: dict, com
                 final = json.loads(content)
             except json.JSONDecodeError as exc:
                 # Diagnostic metadata only: never expose raw model/source content.
-                trace["answer_format_diagnostics"] = {"characters": len(content), "error_position": exc.pos}
+                trace["answer_format_diagnostics"] = {
+                    "characters": len(content), "error_position": exc.pos, "error": exc.msg,
+                }
                 raise RuntimeError("invalid_answer_json") from None
             if not isinstance(final, dict):
                 raise RuntimeError("invalid_answer_json")

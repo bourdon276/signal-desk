@@ -22,7 +22,9 @@ class SearchItems(Tool):
     def __init__(
         self, user_id: str, since: datetime | None = None, until: datetime | None = None,
         news_kind: str = "all", query_view: str | None = None,
+        query_watch_ids: list[str] | None = None,
     ) -> None:
+        self.query_watch_ids = query_watch_ids
         self.query_view = query_view
         self.news_kind = news_kind
         self.user_id = user_id
@@ -70,6 +72,8 @@ class SearchItems(Tool):
         news_kind: str = "all",
     ) -> list[dict]:
         with SessionLocal() as db:
+            if self.query_watch_ids is not None:
+                watch_id, watch_ids = None, self.query_watch_ids
             if self.query_view is not None:
                 view = self.query_view
             if self.news_kind != "all":
@@ -241,9 +245,10 @@ def scoped_registry(
     allow_search: bool = False,
     news_kind: str = "all",
     query_view: str | None = None,
+    query_watch_ids: list[str] | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
-    registry.register(SearchItems(user_id, since, until, news_kind, query_view))
+    registry.register(SearchItems(user_id, since, until, news_kind, query_view, query_watch_ids))
     registry.register(GetEvidence(user_id))
     if allow_search:
         registry.register(SearchNews(user_id, since, until))
