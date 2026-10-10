@@ -301,11 +301,16 @@ async def evaluate():
             else {match_id, interview_id}.issubset(ids)
         )
         rows.append({"case": "server_query_view_" + required, "passed": passed})
-    from information_agent.agent_tools import news_age_label
+    from information_agent.agent_tools import beijing_timestamp, news_age_label
 
     rows.append({"case": "evidence_dates_use_beijing", "passed":
         news_age_label("2026-09-27T16:00:00+00:00") == "2026-09-28"
         and news_age_label(None) == "发布时间未知"})
+    rows.append({"case": "tools_include_explicit_beijing_timestamp", "passed":
+        beijing_timestamp("2026-09-27T16:00:00+00:00") == "2026-09-28T00:00:00+08:00"
+        and beijing_timestamp(None) is None
+        and (await SearchItems(uid).execute(limit=1))[0]["published_at_beijing"].endswith("+08:00")
+        and (await GetEvidence(uid).execute(item_id))["published_at_beijing"].endswith("+08:00")})
     from datetime import timedelta
     from types import SimpleNamespace
 

@@ -100,6 +100,7 @@ class SearchItems(Tool):
                     "watch_id": item["watch_id"],
                     "title": display_title(item["title"], item["source_name"])[:200],
                     "published_at": item["published_at"],
+                    "published_at_beijing": beijing_timestamp(item["published_at"]),
                     "source_name": item["source_name"],
                     "ingestion_mode": item["ingestion_mode"],
                     "content_kind": item["content_kind"],
@@ -152,6 +153,7 @@ class GetEvidence(Tool):
                 "source_type": item.source_type,
                 "ingestion_mode": item.ingestion_mode,
                 "published_at": item.published_at.isoformat() if item.published_at else None,
+                "published_at_beijing": beijing_timestamp(item.published_at.isoformat() if item.published_at else None),
             }
 
 
@@ -248,10 +250,15 @@ def scoped_registry(
     return registry
 
 
-def news_age_label(value: str | None) -> str:
+def beijing_timestamp(value: str | None) -> str | None:
     if not value:
-        return "发布时间未知"
+        return None
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+    return parsed.astimezone(ZoneInfo("Asia/Shanghai")).isoformat()
+
+
+def news_age_label(value: str | None) -> str:
+    timestamp = beijing_timestamp(value)
+    return timestamp[:10] if timestamp else "发布时间未知"
