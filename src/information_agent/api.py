@@ -215,8 +215,9 @@ def article_content(item_id: str, user: User = Depends(current_user), db: Sessio
     enabled, topics = user_scope(db, user.id)
     if item is None or not matches(item, enabled, topics):
         raise HTTPException(status_code=404, detail="未找到关注范围内的资讯")
-    if item.article_body:
-        return {"body": item.article_body, "cache_hit": True, "summary": item.summary}
+    cache_prefix = "reader:v2\n"
+    if item.article_body and item.article_body.startswith(cache_prefix):
+        return {"body": item.article_body[len(cache_prefix):], "cache_hit": True, "summary": item.summary}
     try:
         with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
             result = read_full_article(client, item.canonical_url)
@@ -227,11 +228,11 @@ def article_content(item_id: str, user: User = Depends(current_user), db: Sessio
         raise HTTPException(status_code=422, detail=message) from None
     except Exception:
         raise HTTPException(status_code=502, detail="来源页面暂时无法读取，请稍后重试或打开原文。") from None
-    item.article_body = result["body"]
+    item.article_body = cache_prefix + result["body"]
     item.body_fetched_at = now_utc()
     item.summary = article_excerpt(result["blocks"], item.watch_id)
     db.commit()
-    return {"body": item.article_body, "cache_hit": False, "summary": item.summary}
+    return {"body": result["body"], "cache_hit": False, "summary": item.summary}
 
 
 @router.put("/reading")

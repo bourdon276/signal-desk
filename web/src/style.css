@@ -34,3 +34,5 @@
 .managed-topic{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border:1px solid #d5ddd2;border-radius:6px}.managed-topic button{white-space:nowrap}
 .article-reader .reader-toolbar{position:sticky;top:-28px;background:#fafaf6;z-index:1;padding:12px 0}.reader-content{font-variant-numeric:tabular-nums}
 @media(max-width:650px){.article-reader .reader-toolbar{top:-20px}}
+
+.reader-content img{display:block;max-width:100%;height:auto;margin:20px auto;border-radius:4px}

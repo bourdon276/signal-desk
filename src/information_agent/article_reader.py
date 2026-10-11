@@ -2,7 +2,7 @@
 import json
 import re
 from io import BytesIO
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
@@ -36,13 +36,31 @@ def clean_excerpt(text: str, title: str = "", watch_id: str = "") -> str:
     return " ".join(text.split())[:500]
 
 
-def extract_html(html: str, selector: str) -> tuple[str, list[str]]:
+def extract_html(html: str, selector: str, source_url: str = "") -> tuple[str, list[str]]:
     soup = BeautifulSoup(html, "html.parser")
     root = soup.select_one(selector)
     if root is None:
         raise ValueError("article_body_missing")
     for node in root.select("script, style, nav, iframe, form, button, .advertisement, .ad, .share, .article-footer"):
         node.decompose()
+    for image in root.find_all("img"):
+        raw_url = image.get("data-src") or image.get("src") or ""
+        image_url = urljoin(source_url, raw_url)
+        parts = urlsplit(image_url)
+        host = parts.hostname or ""
+        approved_image = parts.scheme == "https" and not parts.username and not parts.password and any(
+            host == domain or host.endswith("." + domain) for domain in (
+                "dfcfw.com", "eastmoney.com", "wmpvp.com", "hltv.org", "dust2.com.br", "stcn.com",
+                "federalreserve.gov", "wanmei.com", "pwesports.cn", "alicdn.com",
+            )
+        )
+        marker = "\n\n[[阅讯图片|" + image_url + "]]\n\n" if approved_image else "【图片请在来源查看】"
+        if image.find_parent(["p", "li"]):
+            image.replace_with(marker)
+        else:
+            block = soup.new_tag("p")
+            block.string = marker
+            image.replace_with(block)
     for table in root.find_all("table"):
         rows = [[cell.get_text(" ", strip=True) for cell in row.find_all(["td", "th"], recursive=False)]
                 for row in table.find_all("tr")]
@@ -62,7 +80,8 @@ def extract_html(html: str, selector: str) -> tuple[str, list[str]]:
         if node.find_parent(["p", "li"]):
             continue
         text = node.get_text(" ", strip=True)
-        if text and not re.match(r"^(责任编辑[：:]|文章来源[：:]|郑重声明[：:]|举报|分享至|微信扫一扫)", text):
+        footer = r"^(责任编辑[：:]|文章来源[：:]|郑重声明[：:]|举报|分享至|微信扫一扫|本文作者可以追加内容)"
+        if text and not re.match(footer, text):
             blocks.append(text)
     if not blocks:
         blocks = [root.get_text("\n", strip=True)]
@@ -86,7 +105,7 @@ def read_full_article(client, url: str) -> dict:
         html = news.get("content")
         if not isinstance(html, str):
             raise ValueError("article_body_missing")
-        body, blocks = extract_html(f'<article>{html}</article>', "article")
+        body, blocks = extract_html(f'<article>{html}</article>', "article", approved)
     elif host == "static.cninfo.com.cn":
         if not urlsplit(approved).path.lower().endswith(".pdf"):
             raise ValueError("unsupported_source")
@@ -101,11 +120,12 @@ def read_full_article(client, url: str) -> dict:
         raw = download(client, approved)
         # Eastmoney currently serves UTF-8; explicit legacy encoding only when declared.
         encoding = "gb18030" if re.search(br'charset\s*=\s*["\']?gb(?:2312|k)', raw[:8000], re.I) else "utf-8"
-        body, blocks = extract_html(raw.decode(encoding), SELECTORS[host])
+        body, blocks = extract_html(raw.decode(encoding), SELECTORS[host], approved)
     return {"body": body, "blocks": blocks}
 
 
 def article_excerpt(blocks: list[str], watch_id: str = "") -> str:
+    blocks = [re.sub(r"\[\[阅讯图片\|[^\]]+\]\]", "", block).strip() for block in blocks]
     paragraphs = [block for block in blocks if len(block) > 25]
     intro = paragraphs[0] if paragraphs else ""
     marker = watch_id.rsplit(":", 1)[-1]

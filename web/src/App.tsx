@@ -45,6 +45,13 @@ function pandascoreRun(result?: SourceResult | null) {
   return `最近一轮：已解析 ${resolved}/${teams} 个战队 · 收到 ${result.matches ?? 0} 场 · 可展示 ${result.matched ?? 0} 场 · 新增 ${result.created ?? 0} 条 · 更新 ${result.updated ?? 0} 条${dropped ? ` · 丢弃 ${dropped} 场（超出时间窗口、字段不完整或状态不支持）` : ''}${result.full_pages ? ` · ${result.full_pages} 个列表达到100条上限，结果可能不完整` : ''}`
 }
 
+function ArticleBody({ body }: { body: string }) {
+  return <div className="reader-content">{body.split(/(\[\[阅讯图片\|[^\]]+\]\])/g).map((part, index) => {
+    const image = part.match(/^\[\[阅讯图片\|(https:\/\/[^\]]+)\]\]$/)
+    return image ? <img key={index} src={image[1]} alt="原文配图" loading="lazy" referrerPolicy="no-referrer" /> : <span key={index}>{part}</span>
+  })}</div>
+}
+
 export default function App() {
   const [agentStatus, setAgentStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [agent, setAgent] = useState<{ configured: boolean; model: string | null; search_configured?: boolean }>({ configured: false, model: null })
@@ -314,8 +321,8 @@ export default function App() {
       <div className="reader-toolbar"><span>阅讯 · 阅读</span><button autoFocus onClick={closeReader}>关闭阅读</button></div>
       <article><div className="card-meta"><span>{reader.source_name}</span><time>{date(reader.published_at)}</time><span>{reader.content_kind_label}</span></div>
       <h1 id="reader-title">{translations[reader.id]?.title || reader.title}</h1>
-      <p className="reader-boundary">{reader.content_kind === 'match' ? '赛事记录' : articleBodies[reader.id]?.body ? '原文正文 · 文字与表格内容' : '正在从来源读取正文'}</p>
-      {reader.content_kind === 'match' ? <div className="reader-content">{reader.overview.text}</div> : articleBodies[reader.id]?.body ? <div className="reader-content">{articleBodies[reader.id].body}</div> : articleBodies[reader.id]?.loading ? <p role="status">正在提取原文正文，首次读取需要几秒…</p> : <div role="alert"><p>{articleBodies[reader.id]?.error || '正文暂不可用'}</p><button onClick={e => openReader(reader, e.currentTarget)}>重试读取正文</button><h2>来源摘录</h2><p>{reader.overview.text}</p></div>}
+      <p className="reader-boundary">{reader.content_kind === 'match' ? '赛事记录' : articleBodies[reader.id]?.body ? '原文正文' : '正在从来源读取正文'}</p>
+      {reader.content_kind === 'match' ? <div className="reader-content">{reader.overview.text}</div> : articleBodies[reader.id]?.body ? <ArticleBody body={articleBodies[reader.id].body!} /> : articleBodies[reader.id]?.loading ? <p role="status">正在提取原文正文，首次读取需要几秒…</p> : <div role="alert"><p>{articleBodies[reader.id]?.error || '正文暂不可用'}</p><button onClick={e => openReader(reader, e.currentTarget)}>重试读取正文</button><h2>来源摘录</h2><p>{reader.overview.text}</p></div>}
       {!!reader.related_sources?.length && <details><summary>其他来源</summary>{reader.related_sources.map(source => <p key={source.id}>{source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.source_name} · {source.title} ↗</a> : source.title}</p>)}</details>}
       </article><div className="reader-actions"><button disabled={busy} onClick={async () => {
         const read = !reader.is_read

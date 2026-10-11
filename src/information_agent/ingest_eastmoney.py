@@ -75,7 +75,7 @@ def read_article(client, url: str) -> dict:
     parser.feed(html)
     title = " ".join("".join(parser.title or parser.document_title).split())
     title = re.sub(r"\s*[_-]\s*东方财富网$", "", title)[:500]
-    _, blocks = extract_html(html, SELECTORS[urlsplit(url).hostname])
+    _, blocks = extract_html(html, SELECTORS[urlsplit(url).hostname], url)
     excerpt = article_excerpt(blocks)
     if not title or not excerpt:
         raise ValueError("article_metadata")
