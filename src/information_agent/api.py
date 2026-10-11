@@ -172,7 +172,9 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
         raise HTTPException(status_code=422, detail="请输入有效的股票代码或战队名称")
     owned = list(db.scalars(select(Topic).where(Topic.user_id == user.id)))
     subscribed = set(db.scalars(select(Watch.watch_id).where(Watch.user_id == user.id)))
-    existing_topic = next((t for t in owned if t.name == name or set(json.loads(t.keywords)).intersection(keywords)), None)
+    existing_topic = next(
+        (t for t in owned if t.name == name or set(json.loads(t.keywords)).intersection(keywords)), None,
+    )
     if existing_topic and existing_topic.id in subscribed:
         raise HTTPException(status_code=409, detail="该关注名称已存在")
     if sum(t.id in subscribed for t in owned) >= 20:
