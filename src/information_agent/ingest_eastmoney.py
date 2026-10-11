@@ -6,12 +6,13 @@ from html.parser import HTMLParser
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+from information_agent.article_reader import SELECTORS, article_excerpt, extract_html
 from information_agent.ingest_common import download, safe_link
 
 
 def article_url(url: str) -> str:
-    approved = safe_link(url, {"finance.eastmoney.com", "stock.eastmoney.com"})
-    if not approved or not re.fullmatch(r"/a/\d{8}\d+\.html", urlsplit(approved).path):
+    approved = safe_link(url, {"finance.eastmoney.com", "stock.eastmoney.com", "caifuhao.eastmoney.com"})
+    if not approved or not re.fullmatch(r"/(?:a/\d{8}\d+\.html|news/\d{14,30})", urlsplit(approved).path):
         raise ValueError("article_url")
     return approved
 
@@ -70,13 +71,15 @@ class ArticleParser(HTMLParser):
 def read_article(client, url: str) -> dict:
     url = article_url(url)
     parser = ArticleParser()
-    parser.feed(download(client, url).decode("utf-8"))
+    html = download(client, url).decode("utf-8")
+    parser.feed(html)
     title = " ".join("".join(parser.title or parser.document_title).split())
     title = re.sub(r"\s*[_-]\s*东方财富网$", "", title)[:500]
-    excerpt = " ".join("".join(parser.paragraphs).split())[:360]
+    _, blocks = extract_html(html, SELECTORS[urlsplit(url).hostname])
+    excerpt = article_excerpt(blocks)
     if not title or not excerpt:
         raise ValueError("article_metadata")
-    date = re.search(r"/a/(\d{8})", urlsplit(url).path)[1]
+    date = re.search(r"/(?:a|news)/(\d{8})", urlsplit(url).path)[1]
     return {"title": title, "url": url, "content": excerpt,
             "published_date": datetime.strptime(date, "%Y%m%d").replace(
                 tzinfo=ZoneInfo("Asia/Shanghai")

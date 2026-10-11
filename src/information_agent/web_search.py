@@ -183,7 +183,7 @@ def normalize_result(row, target, domains, now):
         "watch_id": target["watch_id"],
         "canonical_url": url,
         "title": title,
-        "summary": "搜索摘录（未核验全文；日期为搜索服务估计）：" + (excerpt or "仅有标题，请打开原文核对。"),
+        "summary": excerpt or "",
         "source_name": host + (" · 战队新闻" if target["kind"] == "team" else " · 股票资讯"),
         "source_type": "media",
         "ingestion_mode": "search",

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from information_agent import model_agent, translation
 from information_agent.acquisition_preferences import acquisition_profile
 from information_agent.agent_tools import SearchNews, news_age_label, scoped_registry
+from information_agent.article_reader import article_excerpt, read_full_article
 from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.domain import INDEX_NAMES, STOCK_NAMES, WATCHES, resolve_watch_ids, valid_watch
@@ -170,10 +171,16 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
     ):
         raise HTTPException(status_code=422, detail="请输入有效的股票代码或战队名称")
     owned = list(db.scalars(select(Topic).where(Topic.user_id == user.id)))
-    if len(owned) >= 20:
-        raise HTTPException(status_code=422, detail="最多添加 20 个自定义关注")
-    if any(t.name == name or set(json.loads(t.keywords)).intersection(keywords) for t in owned):
+    subscribed = set(db.scalars(select(Watch.watch_id).where(Watch.user_id == user.id)))
+    existing_topic = next((t for t in owned if t.name == name or set(json.loads(t.keywords)).intersection(keywords)), None)
+    if existing_topic and existing_topic.id in subscribed:
         raise HTTPException(status_code=409, detail="该关注名称已存在")
+    if sum(t.id in subscribed for t in owned) >= 20:
+        raise HTTPException(status_code=422, detail="最多添加 20 个自定义关注")
+    if existing_topic:
+        db.add(Watch(user_id=user.id, watch_id=existing_topic.id))
+        db.commit()
+        return {"id": existing_topic.id, "name": existing_topic.name, "keywords": json.loads(existing_topic.keywords)}
     topic = Topic(user_id=user.id, name=name, keywords=json.dumps(keywords, ensure_ascii=False))
     db.add(topic)
     db.flush()
@@ -198,6 +205,31 @@ def create_topic(payload: TopicInput, user: User = Depends(current_user), db: Se
         "stock_code": payload.stock_code,
         "sync_queued": sync_queued,
     }
+
+
+@router.get("/items/{item_id}/article")
+def article_content(item_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    item = db.get(Item, item_id)
+    enabled, topics = user_scope(db, user.id)
+    if item is None or not matches(item, enabled, topics):
+        raise HTTPException(status_code=404, detail="未找到关注范围内的资讯")
+    if item.article_body:
+        return {"body": item.article_body, "cache_hit": True, "summary": item.summary}
+    try:
+        with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
+            result = read_full_article(client, item.canonical_url)
+    except ValueError as exc:
+        message = "这个来源暂不支持站内正文，请使用原文入口。" if str(exc) == "unsupported_source" else (
+            "来源页面没有返回可读正文，可能需要登录或使用动态加载；请使用原文入口。"
+        )
+        raise HTTPException(status_code=422, detail=message) from None
+    except Exception:
+        raise HTTPException(status_code=502, detail="来源页面暂时无法读取，请稍后重试或打开原文。") from None
+    item.article_body = result["body"]
+    item.body_fetched_at = now_utc()
+    item.summary = article_excerpt(result["blocks"], item.watch_id)
+    db.commit()
+    return {"body": item.article_body, "cache_hit": False, "summary": item.summary}
 
 
 @router.put("/reading")

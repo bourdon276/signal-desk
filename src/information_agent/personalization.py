@@ -45,19 +45,14 @@ def candidate_filter(enabled, topics):
 
 
 def overview(item):
-    if item.summary:
-        return {
-            "text": item.summary[:500],
-            "kind": "搜索摘录（未核验全文）"
-            if item.ingestion_mode == "search"
-            else "来源短摘录"
-            if item.ingestion_mode in {"rss", "api"}
-            else "原文概况",
-        }
-    return {
-        "text": f"{item.source_name}发布了关于“{item.title}”的消息。当前只收录标题和链接，具体数字与细节尚未提取。",
-        "kind": "标题概况",
-    }
+    from information_agent.article_reader import clean_excerpt
+
+    text = clean_excerpt(item.summary, item.title, item.watch_id)
+    if text:
+        return {"text": text, "kind": "正文摘要" if item.article_body else (
+            "搜索摘录" if item.ingestion_mode == "search" else "来源摘录"
+        )}
+    return {"text": "点击标题，在阅讯读取正文。", "kind": "正文阅读"}
 
 
 def article_url(item):

@@ -41,6 +41,8 @@ class Item(Base):
     canonical_url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     summary: Mapped[str] = mapped_column(Text, default="")
+    article_body: Mapped[str | None] = mapped_column(Text)
+    body_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_name: Mapped[str] = mapped_column(String(120), nullable=False)
     source_type: Mapped[str] = mapped_column(String(30), nullable=False)
     ingestion_mode: Mapped[str] = mapped_column(String(30), nullable=False)

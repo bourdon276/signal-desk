@@ -30,3 +30,7 @@
 .reader-content{white-space:pre-wrap;overflow-wrap:anywhere;font-size:18px;line-height:1.9;margin:24px 0 32px}
 .reader-actions{border-top:1px solid #d5ddd2;padding-top:20px}
 @media(max-width:650px){.article-reader{padding:20px;max-height:90dvh}.article-reader h1{font-size:22px}.reader-content{font-size:17px}}
+
+.managed-topic{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border:1px solid #d5ddd2;border-radius:6px}.managed-topic button{white-space:nowrap}
+.article-reader .reader-toolbar{position:sticky;top:-28px;background:#fafaf6;z-index:1;padding:12px 0}.reader-content{font-variant-numeric:tabular-nums}
+@media(max-width:650px){.article-reader .reader-toolbar{top:-20px}}
