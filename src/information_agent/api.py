@@ -15,6 +15,8 @@ import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -382,6 +384,14 @@ def add_feedback(payload: FeedbackInput, user: User = Depends(current_user), db:
         raise HTTPException(status_code=422, detail="重复消息不支持偏好原因")
     event = Feedback(user_id=user.id, item_id=item.id, action=payload.action, reason=payload.reason)
     db.add(event)
+    if payload.action in {"interested", "not_interested"}:
+        # Persist feedback and its reading state in one transaction; repeat clicks
+        # or another device marking it read must not create duplicate readings.
+        insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+        db.execute(
+            insert(Reading).values(user_id=user.id, item_id=item.id)
+            .on_conflict_do_nothing(index_elements=["user_id", "item_id"])
+        )
     db.commit()
     if payload.reason == "content_type" and settings.sync_in_web and search_configured():
         request_sync("web_news")
