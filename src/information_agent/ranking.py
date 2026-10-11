@@ -24,6 +24,7 @@ def ranked_items(
     watch_id: str | None = None,
     diagnostics: dict | None = None,
     group_events: bool = True,
+    reading_order: bool = False,
 ) -> list[dict]:
     watch_ids, topics = user_scope(db, user_id)
     if diagnostics is not None:
@@ -188,6 +189,14 @@ def ranked_items(
     raw_count = len(rows)
     if group_events:
         rows = group_rows(rows)
+    if reading_order:
+        # Feed order is independent of preference scoring used by Agent retrieval.
+        rows.sort(
+            key=lambda row: datetime.fromisoformat(row["published_at"]).timestamp()
+            if row["published_at"] else float("-inf"),
+            reverse=True,
+        )
+        rows.sort(key=lambda row: row["is_read"])
     if diagnostics is not None:
         diagnostics["collapsed_sources"] = raw_count - len(rows)
         blocked_ids = {item.id for item in items if item.id in hidden_items}

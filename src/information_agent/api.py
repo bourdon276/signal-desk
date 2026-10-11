@@ -317,7 +317,10 @@ def feed(
     db: Session = Depends(get_db),
 ) -> dict:
     diagnostics = {}
-    items = ranked_items(db, user.id, limit, view=view, watch_id=watch_id, news_kind=news_kind, diagnostics=diagnostics)
+    items = ranked_items(
+        db, user.id, limit, view=view, watch_id=watch_id, news_kind=news_kind,
+        diagnostics=diagnostics, reading_order=True,
+    )
     return {
         "items": items,
         "view": view,

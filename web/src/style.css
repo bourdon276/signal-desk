@@ -15,3 +15,18 @@
 .translation-control{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}.translation-control button{font-size:12px}.translation-control small,.translation-original small{font-size:11px;color:#899382}.translation-original{margin-top:14px;font-size:12px;color:#626f60;line-height:1.8}.translation-original summary{cursor:pointer}.translation-original strong{display:block;margin-top:8px}.translation-original p{overflow-wrap:anywhere}
 
 .run-actions{display:flex;gap:10px;margin-bottom:16px}.run-history details{padding:12px 0;border-top:1px solid #e5e8dc;font-size:12px}.run-history summary{display:flex;justify-content:space-between;gap:10px;cursor:pointer;flex-wrap:wrap}.run-history small{color:#7d8876}.run-history pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;background:#f5f6f0;padding:12px;border-radius:4px}.run-history details p{font-size:11px;color:#899382;overflow-wrap:anywhere}
+
+/* Keep reading inside the desk; external navigation is an explicit reader action. */
+.article-title{display:block;text-align:left;font:inherit;font-weight:inherit;color:inherit;border:0;background:none;padding:0;line-height:inherit;cursor:pointer}
+.article-title:hover{text-decoration:underline;text-underline-offset:4px}
+.article-title:focus-visible{outline:2px solid #315a45;outline-offset:5px}
+.card{overflow-anchor:none}
+.article-reader{position:fixed;inset:0;margin:auto;width:min(760px,calc(100% - 32px));max-height:85dvh;overflow:auto;border:1px solid #d5ddd2;border-radius:12px;padding:28px;background:#fafaf6;color:#25332d;box-sizing:border-box}
+.article-reader::backdrop{background:rgba(25,38,31,.5)}
+.reader-toolbar,.reader-actions{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.reader-toolbar{border-bottom:1px solid #d5ddd2;padding-bottom:16px;margin-bottom:24px}
+.article-reader h1{font-size:26px;line-height:1.5;margin:18px 0}
+.reader-boundary{font-size:14px;color:#6a7868;line-height:1.7}
+.reader-content{white-space:pre-wrap;overflow-wrap:anywhere;font-size:18px;line-height:1.9;margin:24px 0 32px}
+.reader-actions{border-top:1px solid #d5ddd2;padding-top:20px}
+@media(max-width:650px){.article-reader{padding:20px;max-height:90dvh}.article-reader h1{font-size:22px}.reader-content{font-size:17px}}
