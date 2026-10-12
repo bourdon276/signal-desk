@@ -219,9 +219,9 @@ export default function App() {
       if (context === viewContext.current) {
         captureReadingPosition(ids)
         setItems(current => current.map(item => changed.find(old => old.id === item.id) || item))
-      setReader(current => current ? changed.find(old => old.id === current.id) || current : null)
         setFeedDiagnostics(current => current ? { ...current, unread_count: Math.max(0, current.unread_count - delta) } : current)
       }
+      setReader(current => current ? changed.find(old => old.id === current.id) || current : null)
       setError(`已读状态未保存，已恢复：${(cause as Error).message}`)
       return false
     } finally {
@@ -253,9 +253,9 @@ export default function App() {
       if (context === viewContext.current) {
         captureReadingPosition([item.id])
         setItems(current => hide ? [...current, item] : current.map(row => row.id === item.id ? item : row))
-      setReader(current => current?.id === item.id ? item : current)
-      setFeedDiagnostics(current => current ? { ...current, unread_count: current.unread_count - delta, eligible_count: current.eligible_count + Number(hide), returned_count: current.returned_count + Number(hide) } : current)
+        setFeedDiagnostics(current => current ? { ...current, unread_count: current.unread_count - delta, eligible_count: current.eligible_count + Number(hide), returned_count: current.returned_count + Number(hide) } : current)
       }
+      setReader(current => current?.id === item.id ? item : current)
       setFeedback(current => current.filter(event => event.id !== localId))
       if (context !== viewContext.current) queueReconcile()
       setError(`反馈未保存，已恢复：${(cause as Error).message}`)
