@@ -120,6 +120,8 @@ export default function App() {
     window.scrollTo({ top: scrollY, behavior: 'instant' })
     setReader(null)
   }
+  const viewContext = useRef('')
+  viewContext.current = [feedView, filter, searchFocus].join('|')
   const pendingItems = useRef(new Set<string>())
   const [savingItems, setSavingItems] = useState<Set<string>>(new Set())
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set())
@@ -139,6 +141,11 @@ export default function App() {
 
   const refresh = useCallback(async (view: FeedView = feedView, preservePosition = false, changedItemId?: string) => {
     if (!token) return
+    if (pendingItems.current.size) {
+      if (!preservePosition) { setFeedLoading(true); setItems([]); setFeedDiagnostics(null) }
+      queueReconcile()
+      return
+    }
     const version = ++refreshVersion.current
     if (!preservePosition) { setFeedLoading(true); setItems([]); setFeedDiagnostics(null) }
     setFeedError(false); setError('')
@@ -194,7 +201,7 @@ export default function App() {
   async function saveReading(ids: string[], read: boolean, batch = false) {
     const changed = items.filter(item => ids.includes(item.id) && item.is_read !== read)
     if (!changed.length || ids.some(id => pendingItems.current.has(id))) return false
-    const version = bodyVersion.current
+    const version = bodyVersion.current, context = viewContext.current
     changed.forEach(item => pendingItems.current.add(item.id)); setSavingItems(new Set(pendingItems.current))
     ++refreshVersion.current; setFeedLoading(false); setError('')
     captureReadingPosition(ids)
@@ -209,21 +216,23 @@ export default function App() {
       return true
     } catch (cause) {
       if (version !== bodyVersion.current) return false
-      captureReadingPosition(ids)
-      setItems(current => current.map(item => changed.find(old => old.id === item.id) || item))
+      if (context === viewContext.current) {
+        captureReadingPosition(ids)
+        setItems(current => current.map(item => changed.find(old => old.id === item.id) || item))
       setReader(current => current ? changed.find(old => old.id === current.id) || current : null)
-      setFeedDiagnostics(current => current ? { ...current, unread_count: Math.max(0, current.unread_count - delta) } : current)
+        setFeedDiagnostics(current => current ? { ...current, unread_count: Math.max(0, current.unread_count - delta) } : current)
+      }
       setError(`已读状态未保存，已恢复：${(cause as Error).message}`)
       return false
     } finally {
-      if (version === bodyVersion.current) { changed.forEach(item => pendingItems.current.delete(item.id)); setSavingItems(new Set(pendingItems.current)) }
+      if (version === bodyVersion.current) { changed.forEach(item => pendingItems.current.delete(item.id)); setSavingItems(new Set(pendingItems.current)); if (context !== viewContext.current) queueReconcile() }
     }
   }
   async function saveFeedback(body: { item_id: string; action: string; reason?: string }) {
     if (pendingItems.current.has(body.item_id)) return false
     const item = items.find(row => row.id === body.item_id)
     if (!item) return false
-    const version = bodyVersion.current, localId = `pending-${crypto.randomUUID()}`
+    const version = bodyVersion.current, context = viewContext.current, localId = `pending-${crypto.randomUUID()}`
     pendingItems.current.add(item.id); setSavingItems(new Set(pendingItems.current))
     ++refreshVersion.current; setFeedLoading(false); setError(''); setFeedbackItem(null)
     captureReadingPosition([item.id])
@@ -241,11 +250,14 @@ export default function App() {
       return true
     } catch (cause) {
       if (version !== bodyVersion.current) return false
-      captureReadingPosition([item.id])
-      setItems(current => hide ? [...current, item] : current.map(row => row.id === item.id ? item : row))
+      if (context === viewContext.current) {
+        captureReadingPosition([item.id])
+        setItems(current => hide ? [...current, item] : current.map(row => row.id === item.id ? item : row))
       setReader(current => current?.id === item.id ? item : current)
-      setFeedback(current => current.filter(event => event.id !== localId))
       setFeedDiagnostics(current => current ? { ...current, unread_count: current.unread_count - delta, eligible_count: current.eligible_count + Number(hide), returned_count: current.returned_count + Number(hide) } : current)
+      }
+      setFeedback(current => current.filter(event => event.id !== localId))
+      if (context !== viewContext.current) queueReconcile()
       setError(`反馈未保存，已恢复：${(cause as Error).message}`)
       return false
     } finally {
@@ -373,7 +385,7 @@ export default function App() {
     <div className="workspace"><section className="heading"><div><h1>{filter === 'all' ? '我的阅读台' : currentTopic?.name}</h1><p>{feedLoading ? '正在加载你的关注和消息…' : feedError ? '消息未加载完成，请重试。' : unreadCount ? `还有 ${unreadCount} 条未读。先看概况，再决定是否打开原文。` : '当前消息已读完。下次来源更新后再来看看。'}</p></div><button onClick={() => void refresh(feedView, true)} disabled={busy}>刷新</button></section>
     {error && <div className="message error" role="alert">{error}<button onClick={() => setError('')}>关闭</button></div>}{notice && <div className="message">{notice}</div>}
     {showRuns && <section className="settings run-history"><div className="section-title"><h2>我的运行记录</h2><button onClick={() => setShowRuns(false)}>收起</button></div><p>最近50条已记录操作；执行成功不代表回答准确。费用是按配置报价估算，缓存命中不一定产生新记录。</p><div className="run-actions"><button disabled={runsLoading} onClick={() => void loadRuns()}>刷新记录</button><button disabled={runsLoading || !personalRuns.length} onClick={exportRuns}>导出JSON</button></div>{runsLoading ? <p role="status">正在读取记录…</p> : !personalRuns.length ? <p>暂无已记录操作。完成一次模型问答或翻译后，刷新记录查看。</p> : personalRuns.map(run => <details key={run.id}><summary><span>{({ model_agent: '模型问答', evidence_answer: '库存检索', article_translation: '中文翻译', web_news_search_sync: '联网搜索', policy_denial: '权限拒绝', perfect_world_share_import: '分享导入', eastmoney_share_import: '文章导入' } as Record<string, string>)[run.kind] || run.kind} · {({ success: '完成', failure: '失败', running: '进行中' } as Record<string, string>)[run.status] || run.status}</span><small>{updateTime(run.started_at)} · {run.duration_ms === null ? '耗时待记录' : `${(run.duration_ms / 1000).toFixed(1)}秒`} · {typeof run.trace.estimated_cost_cny === 'number' ? `估算¥${run.trace.estimated_cost_cny.toFixed(5)}` : '费用未记录'}</small></summary><p>{run.id}</p><pre>{JSON.stringify(run.trace, null, 2)}</pre></details>)}</section>}
-    <div className="daily-status" role="status"><strong>{collection?.status === 'running' ? '后台正在更新资讯' : collectedToday ? '今天已执行自动采集' : '今天的自动采集尚未完成'}</strong><span>{feedView === 'news' ? `当前列表：今天发布 ${todayNews} 条` : '比赛记录按赛程更新'} · 最近完成：{updateTime(collection?.finished_at || null)}</span><small>{collection?.status === 'partial' ? '部分来源更新失败，已有资讯仍可阅读。' : '只展示实际收录的内容；来源没有发布或未被覆盖时，不保证每天都有当天新闻。'}</small></div>
+    <div className="daily-status" role="status"><strong>{feedLoading && !collection ? '正在确认资讯更新状态' : collection?.status === 'running' ? '后台正在更新资讯' : collectedToday ? '今天已执行自动采集' : '今天的自动采集尚未完成'}</strong><span>{feedView === 'news' ? `当前列表：今天发布 ${todayNews} 条` : '比赛记录按赛程更新'} · 最近完成：{updateTime(collection?.finished_at || null)}</span><small>{collection?.status === 'partial' ? '部分来源更新失败，已有资讯仍可阅读。' : '只展示实际收录的内容；来源没有发布或未被覆盖时，不保证每天都有当天新闻。'}</small></div>
     {editing && <section className="settings"><div className="section-title"><h2>管理关注</h2><button onClick={() => setEditing(false)}>收起</button></div><p>这里只列出你自己的关注。添加股票、指数或战队后，后台采集近30天新闻。</p><button disabled={busy} onClick={() => void mutate('/watches', 'PUT', { watch_id: 'gold:london', enabled: true })}>＋ 关注伦敦金</button><div className="topic-grid">{selected.map(t => <div className="managed-topic" key={t.id}><span>{t.name}</span><button disabled={busy} onClick={async () => {
       if (await mutate('/watches', 'PUT', { watch_id: t.id, enabled: false })) { if (filter === t.id) setFilter('all'); setNotice(`已删除关注“${t.name}”。已读与反馈保留，再次关注后可接着读。`) }
     }}>删除关注</button></div>)}</div>{options.some(t => !watches.includes(t.id)) && <details><summary>已移除关注，可恢复</summary>{options.filter(t => !watches.includes(t.id)).map(t => <button disabled={busy} key={t.id} onClick={() => void mutate('/watches', 'PUT', { watch_id: t.id, enabled: true })}>重新关注 {t.name}</button>)}</details>}{topics.filter(t => t.stock_code === '000001').map(t => <p key={t.id} className="hint">{t.name} 当前按平安银行匹配。若你要看上证指数：<button disabled={busy} onClick={() => void mutate(`/topics/${t.id}/as-index`, 'POST')}>改为上证指数</button></p>)}
