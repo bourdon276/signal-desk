@@ -471,8 +471,17 @@ def desk(
     last_collection = db.scalar(
         select(AgentRun).where(AgentRun.kind == "scheduled_collection").order_by(AgentRun.started_at.desc()).limit(1)
     )
+    collection_detail = {}
+    if last_collection:
+        try:
+            collection_detail = json.loads(last_collection.detail or "{}")
+        except (ValueError, TypeError):
+            pass
+    search_detail = collection_detail.get("web_news", {})
     return {
         "collection": {
+            "search_budget_exhausted": bool(search_detail.get("budget_exhausted")),
+            "search_deferred": search_detail.get("deferred_targets", 0),
             "status": last_collection.status if last_collection else "not_run",
             "started_at": last_collection.started_at.isoformat() if last_collection else None,
             "finished_at": (

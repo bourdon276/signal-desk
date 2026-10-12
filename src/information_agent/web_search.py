@@ -264,7 +264,8 @@ def search_cache_key(target: dict, focus: str) -> str:
     query, domains = request_spec(target, focus)
     return hashlib.sha256(
         json.dumps(
-            [SEARCH_POLICY_VERSION, provider().cache_namespace, target["watch_id"], focus, query, domains]
+            [SEARCH_POLICY_VERSION, provider().cache_namespace, target["watch_id"], focus, query, domains,
+             target.get("time_range", "month")]
         ).encode()
     ).hexdigest()
 
@@ -282,7 +283,10 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
     key = search_cache_key(target, focus)
     cached, token = claim(key, user_id)
     if cached is not None:
-        return {**cached, "requested_focus": requested_focus, "effective_focus": focus}
+        return {
+            **cached, "requested_focus": requested_focus, "effective_focus": focus,
+            "time_range": target.get("time_range", "month"),
+        }
     # Reservations count attempted requests, including uncertain failures; no automatic retries.
     with SessionLocal() as db:
         run = AgentRun(user_id=user_id, kind=KIND, status="running", detail="")
@@ -290,11 +294,13 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         db.commit()
         run_id = run.id
     result = {"status": "failure", "results": [], "search_credits": 1, "cache_hit": False,
-              "effective_focus": focus}
+              "effective_focus": focus, "time_range": target.get("time_range", "month")}
     try:
         # Sports news uses the provider's article-oriented index; stock PDFs retain general search.
         topic = "news" if target["kind"] == "team" else "general"
-        rows = (await asyncio.wait_for(adapter.search(query, domains, topic=topic), timeout=15))[:12]
+        rows = (await asyncio.wait_for(
+            adapter.search(query, domains, topic=topic, time_range=target.get("time_range", "month")), timeout=15,
+        ))[:12]
         enriched = 0
         if target["kind"] in {"stock", "index"}:
             # Search snippets can omit the named entity or publication date.
@@ -408,6 +414,7 @@ def sync() -> dict:
     # searches come first so subscriptions after position ten can make progress.
     due = []
     for value, focus in unique.values():
+        value = {**value, "time_range": "day"}
         cache = cache_by_key.get(search_cache_key(value, focus))
         if cache and (_aware(cache.expires_at) > now or _aware(cache.lease_until) > now):
             continue
@@ -423,6 +430,8 @@ def sync() -> dict:
         "targets": len(results), "due_targets": len(due),
         "deferred_targets": max(0, len(due) - len(results)),
         "search_credits": sum(r["search_credits"] for r in results),
+        "budget_exhausted": bool(due) and (remaining == 0 or any(r["status"] == "budget_exhausted" for r in results)),
+        "time_range": "day",
     }
 
 

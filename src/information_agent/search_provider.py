@@ -11,15 +11,21 @@ from information_agent.config import settings
 class SearchProvider(Protocol):
     cache_namespace: str
 
-    async def search(self, query: str, domains: list[str], *, topic: str = "general") -> list[dict]: ...
+    async def search(
+        self, query: str, domains: list[str], *, topic: str = "general", time_range: str = "month",
+    ) -> list[dict]: ...
 
 
 class TavilyProvider:
     cache_namespace = "tavily-basic-v3-12-results"
 
-    async def search(self, query: str, domains: list[str], *, topic: str = "general") -> list[dict]:
+    async def search(
+        self, query: str, domains: list[str], *, topic: str = "general", time_range: str = "month",
+    ) -> list[dict]:
         if topic not in {"general", "news"}:
             raise ValueError("unsupported_search_topic")
+        if time_range not in {"day", "month"}:
+            raise ValueError("unsupported_search_time_range")
         payload = {
             "query": query,
             "topic": topic,
@@ -27,7 +33,7 @@ class TavilyProvider:
             "auto_parameters": False,
             "max_results": 12,
             "chunks_per_source": 1,
-            "time_range": "month",
+            "time_range": time_range,
             "include_domains": domains,
             "exclude_domains": ["quote.eastmoney.com", "egs.stcn.com"],
             "include_domains_mode": "restrict",
