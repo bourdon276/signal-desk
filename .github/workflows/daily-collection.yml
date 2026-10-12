@@ -1,0 +1,44 @@
+name: Prepare daily news
+on:
+  schedule:
+    # UTC -> Asia/Shanghai 06:43, 13:13, 19:43; cache TTL has time to expire.
+    - cron: '43 22,11 * * *'
+    - cron: '13 5 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: daily-collection
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SERVICE_URL: https://signal-desk-demo.onrender.com
+      SYNC_TRIGGER_TOKEN: ${{ secrets.SYNC_TRIGGER_TOKEN }}
+    steps:
+      - name: Check scheduler configuration
+        run: |
+          if [ -z "$SYNC_TRIGGER_TOKEN" ]; then
+            echo 'Configure SYNC_TRIGGER_TOKEN in GitHub Actions secrets and Render Environment.'
+            exit 1
+          fi
+      - name: Wake service and prepare current subscriptions
+        run: |
+          curl --fail --silent --show-error --connect-timeout 15 --max-time 180 \
+            --retry 2 --retry-delay 15 "$SERVICE_URL/ready" > /dev/null
+          # No retries for the mutation: timeout may mean the job is still running.
+          curl --fail --silent --show-error --connect-timeout 15 --max-time 1200 \
+            -X POST -H "X-Sync-Token: $SYNC_TRIGGER_TOKEN" \
+            "$SERVICE_URL/api/admin/sync" -o collection.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('collection.json').read_text())
+          print(json.dumps(result, ensure_ascii=False))
+          if result['status'] == 'partial':
+              print('::warning::Some sources failed; inspect the collection result.')
+          if result['status'] not in {'success', 'partial', 'running'}:
+              raise SystemExit('Collection did not finish successfully')
+          PY

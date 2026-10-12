@@ -20,4 +20,4 @@ COPY docs/demo_links.json ./docs/demo_links.json
 COPY --from=web /build/web/dist/ ./web/dist/
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
-CMD ["sh", "-c", "alembic upgrade head && python scripts/import_demo_links.py && uvicorn information_agent.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn information_agent.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -260,6 +260,15 @@ def claim(key: str, user_id: str | None):
     return None, token
 
 
+def search_cache_key(target: dict, focus: str) -> str:
+    query, domains = request_spec(target, focus)
+    return hashlib.sha256(
+        json.dumps(
+            [SEARCH_POLICY_VERSION, provider().cache_namespace, target["watch_id"], focus, query, domains]
+        ).encode()
+    ).hexdigest()
+
+
 async def discover(target: dict, focus: str = "recent", user_id: str | None = None) -> dict:
     if not configured():
         return {"status": "not_configured", "results": [], "search_credits": 0}
@@ -270,9 +279,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         focus = preferred_focus(target["kind"], target.get("preference", {}))
     query, domains = request_spec(target, focus)
     adapter = provider()
-    key = hashlib.sha256(
-        json.dumps([SEARCH_POLICY_VERSION, adapter.cache_namespace, target["watch_id"], focus, query, domains]).encode()
-    ).hexdigest()
+    key = search_cache_key(target, focus)
     cached, token = claim(key, user_id)
     if cached is not None:
         return {**cached, "requested_focus": requested_focus, "effective_focus": focus}
@@ -392,19 +399,31 @@ def sync() -> dict:
                     unique[(value["watch_id"], focus)] = (value, focus)
         today = now_utc().astimezone(ZoneInfo("Asia/Shanghai"))
         used = db.get(SearchBudget, "day:" + today.strftime("%Y-%m-%d"))
-        # Daily deterministic rotation avoids starving later subscriptions under a small global cap.
+        # Preserve the global daily credit cap across automated and manual discovery.
         remaining = max(0, settings.search_day_credit_limit - (used.credits if used else 0))
-    ordered = sorted(
-        unique.values(), key=lambda r: hashlib.sha256(
-            (today.strftime("%Y-%m-%d") + r[0]["watch_id"] + r[1]).encode()
-        ).hexdigest()
-    )
+    with SessionLocal() as db:
+        cache_by_key = {row.key: row for row in db.scalars(select(SearchCache))}
+    now = now_utc()
+    # Never spend the limited first ten slots on still-fresh cache hits. Oldest
+    # searches come first so subscriptions after position ten can make progress.
+    due = []
+    for value, focus in unique.values():
+        cache = cache_by_key.get(search_cache_key(value, focus))
+        if cache and (_aware(cache.expires_at) > now or _aware(cache.lease_until) > now):
+            continue
+        due.append((value, focus, _aware(cache.expires_at) if cache else datetime.min.replace(tzinfo=UTC)))
+    ordered = sorted(due, key=lambda row: (row[2], row[0]["watch_id"], row[1]))
     results = []
-    for target, focus in ordered[: min(remaining, 10)]:
+    for target, focus, _ in ordered[: min(remaining, 10)]:
         results.append(asyncio.run(discover(target, focus)))
         if results[-1]["status"] == "budget_exhausted":
             break
-    return {"status": "completed", "targets": len(results), "search_credits": sum(r["search_credits"] for r in results)}
+    return {
+        "status": "partial" if any(r["status"] == "failure" for r in results) else "completed",
+        "targets": len(results), "due_targets": len(due),
+        "deferred_targets": max(0, len(due) - len(results)),
+        "search_credits": sum(r["search_credits"] for r in results),
+    }
 
 
 if __name__ == "__main__":

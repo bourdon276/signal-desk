@@ -7,13 +7,13 @@ type PersonalRun = { id: string; kind: string; status: string; started_at: strin
 
 type Translation = { title: string; summary: string; cache_hit: boolean; estimated_cost_cny: number | null; run_id?: string }
 
-type FeedView = 'news' | 'matches' | 'all'
+type FeedView = 'news' | 'matches'
 type RejectedSearchResult = { title: string; url: string | null; reason: string; published_at: string | null }
 type SearchReport = { watchId: string; focus: string; text: string; pending: boolean; failed: boolean; rejected?: RejectedSearchResult[]; label?: string }
 
 type Topic = { id: string; name: string; keywords?: string[]; index_code?: string | null; stock_code?: string | null; team_name?: string | null; team_watch_id?: string | null }
 type Item = { event_group_basis?: string; source_count?: number; related_sources?: { id: string; title: string; url: string | null; source_name: string; published_at: string | null }[]; id: string; watch_id: string; matched_watch_ids: string[]; title: string; summary?: string; url: string | null; source_name: string; ingestion_mode: string; published_at: string | null; overview: { text: string; kind: string }; is_read: boolean; reason: string; content_kind: string; content_kind_label: string }
-type Feedback = { id: string; item_id: string; action: string; reason: string | null; undone_at: string | null }
+type Feedback = { title?: string; id: string; item_id: string; action: string; reason: string | null; undone_at: string | null }
 type SourceResult = { entries?: number; teams?: number; resolved_teams?: number; unresolved_teams?: number; matches?: number; matched?: number; created?: number; updated?: number; skipped?: number; full_pages?: number; dropped?: Record<string, number> }
 type Source = { id: string; label: string; status: string; automatic: boolean; description: string; last_success_at: string | null; last_attempt_at: string | null; last_error: string | null; last_result?: SourceResult | null }
 type Coverage = { watch_id: string; automatic: boolean; status: string; last_success_at: string | null; latest_item_at: string | null; latest_news_at: string | null; latest_match_at: string | null; description: string; matched_count: number; news_count: number; match_count: number; quality_excluded_count: number; last_result?: SourceResult | null }
@@ -53,6 +53,7 @@ function ArticleBody({ body }: { body: string }) {
 }
 
 export default function App() {
+  const [collection, setCollection] = useState<{ status: string; started_at: string | null; finished_at: string | null } | null>(null)
   const [agentStatus, setAgentStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [agent, setAgent] = useState<{ configured: boolean; model: string | null; search_configured?: boolean }>({ configured: false, model: null })
   const [useModel, setUseModel] = useState(false)
@@ -119,6 +120,11 @@ export default function App() {
     window.scrollTo({ top: scrollY, behavior: 'instant' })
     setReader(null)
   }
+  const pendingItems = useRef(new Set<string>())
+  const [savingItems, setSavingItems] = useState<Set<string>>(new Set())
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set())
+  const [batchMode, setBatchMode] = useState(false)
+  const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshVersion = useRef(0)
   const [feedLoading, setFeedLoading] = useState(false)
   const [feedError, setFeedError] = useState(false)
@@ -141,7 +147,8 @@ export default function App() {
       .then(result => { if (version === refreshVersion.current) { setAgent(result); setAgentStatus('ready') } })
       .catch(() => { if (version === refreshVersion.current) setAgentStatus('error') })
     try {
-      const { watches: w, feed: f, feedback: h, topics: t, catalog: cat, preferences: pref } = await api<{
+      const { watches: w, feed: f, feedback: h, topics: t, catalog: cat, preferences: pref, collection: collected } = await api<{
+        collection: typeof collection;
         watches: { watch_ids: string[] }; feed: { items: Item[]; diagnostics: FeedDiagnostics };
         feedback: { events: Feedback[] }; topics: { topics: Topic[] }; catalog: { watches: Topic[] };
         preferences: { watches: typeof preferences };
@@ -152,18 +159,21 @@ export default function App() {
         const anchor = cards.find(card => card.dataset.feedCard !== changedItemId && f.items.some(item => item.id === card.dataset.feedCard) && card.getBoundingClientRect().bottom > 0)
         if (anchor) readingAnchor.current = { id: anchor.dataset.feedCard!, top: anchor.getBoundingClientRect().top, scrollY: window.scrollY }
       }
+      setCollection(collected)
       setReader(current => current ? f.items.find(item => item.id === current.id) || current : null)
-      setWatches(w.watch_ids); setItems(f.items); setFeedDiagnostics(f.diagnostics); setFeedback(h.events); setTopics(t.topics); setCatalog(cat.watches); setPreferences(pref.watches)
+      setCheckedItems(current => new Set([...current].filter(id => f.items.some(item => item.id === id && !item.is_read)))); setWatches(w.watch_ids); setItems(f.items); setFeedDiagnostics(f.diagnostics); setFeedback(current => h.events.map(event => ({ ...event, title: current.find(old => old.id === event.id)?.title }))); setTopics(t.topics); setCatalog(cat.watches); setPreferences(pref.watches)
       void api<{ sources: Source[] }>('/sources').then(r => { if (version === refreshVersion.current) setSources(r.sources) }).catch(() => {})
       void api<{ coverage: Coverage[] }>('/coverage', token).then(r => { if (version === refreshVersion.current) setCoverages(r.coverage) }).catch(() => {})
     } catch (cause) { if (version === refreshVersion.current) { setFeedError(true); setError((cause as Error).message) } }
     finally { if (version === refreshVersion.current) setFeedLoading(false) }
   }, [token, feedView, filter, searchFocus])
+  const latestRefresh = useRef(refresh)
+  latestRefresh.current = refresh
   useEffect(() => { setSearchFocus('auto'); setSearchReport(null); setSharedUrl('') }, [filter])
   useEffect(() => {
     if (searchReport?.watchId === filter && searchReport.focus === searchFocus) searchResultRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [searchReport, filter, searchFocus])
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { if (reconcileTimer.current) clearTimeout(reconcileTimer.current); setCheckedItems(new Set()); void refresh(); return () => { if (reconcileTimer.current) clearTimeout(reconcileTimer.current) } }, [refresh])
 
   async function auth(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
@@ -172,7 +182,79 @@ export default function App() {
       localStorage.setItem('signal-token', r.token); setCatalog([]); setTopics([]); setWatches([]); setItems([]); setPreferences({}); setFilter('all'); setEmail(''); setPassword(''); setInvite(''); setToken(r.token)
     } catch (cause) { setError((cause as Error).message) } finally { setBusy(false) }
   }
+  function captureReadingPosition(changedIds: string[]) {
+    const anchor = Array.from(document.querySelectorAll<HTMLElement>('[data-feed-card]')).find(card => !changedIds.includes(card.dataset.feedCard!) && card.getBoundingClientRect().bottom > 0)
+    if (anchor) readingAnchor.current = { id: anchor.dataset.feedCard!, top: anchor.getBoundingClientRect().top, scrollY: window.scrollY }
+  }
+  function queueReconcile() {
+    if (reconcileTimer.current) clearTimeout(reconcileTimer.current)
+    // Feedback can alter other cards' scores. Reconcile once after a burst of clicks.
+    reconcileTimer.current = setTimeout(() => { if (pendingItems.current.size) queueReconcile(); else void latestRefresh.current(undefined, true) }, 1800)
+  }
+  async function saveReading(ids: string[], read: boolean, batch = false) {
+    const changed = items.filter(item => ids.includes(item.id) && item.is_read !== read)
+    if (!changed.length || ids.some(id => pendingItems.current.has(id))) return false
+    const version = bodyVersion.current
+    changed.forEach(item => pendingItems.current.add(item.id)); setSavingItems(new Set(pendingItems.current))
+    ++refreshVersion.current; setFeedLoading(false); setError('')
+    captureReadingPosition(ids)
+    setItems(current => current.map(item => ids.includes(item.id) ? { ...item, is_read: read } : item))
+    setReader(current => current && ids.includes(current.id) ? { ...current, is_read: read } : current)
+    const delta = changed.length * (read ? -1 : 1)
+    setFeedDiagnostics(current => current ? { ...current, unread_count: Math.max(0, current.unread_count + delta) } : current)
+    try {
+      await api(batch ? '/reading/batch' : '/reading', token, { method: 'PUT', body: JSON.stringify(batch ? { item_ids: ids } : { item_id: ids[0], read }) })
+      if (version !== bodyVersion.current) return false
+      setCheckedItems(current => new Set([...current].filter(id => !ids.includes(id))))
+      return true
+    } catch (cause) {
+      if (version !== bodyVersion.current) return false
+      captureReadingPosition(ids)
+      setItems(current => current.map(item => changed.find(old => old.id === item.id) || item))
+      setReader(current => current ? changed.find(old => old.id === current.id) || current : null)
+      setFeedDiagnostics(current => current ? { ...current, unread_count: Math.max(0, current.unread_count - delta) } : current)
+      setError(`已读状态未保存，已恢复：${(cause as Error).message}`)
+      return false
+    } finally {
+      if (version === bodyVersion.current) { changed.forEach(item => pendingItems.current.delete(item.id)); setSavingItems(new Set(pendingItems.current)) }
+    }
+  }
+  async function saveFeedback(body: { item_id: string; action: string; reason?: string }) {
+    if (pendingItems.current.has(body.item_id)) return false
+    const item = items.find(row => row.id === body.item_id)
+    if (!item) return false
+    const version = bodyVersion.current, localId = `pending-${crypto.randomUUID()}`
+    pendingItems.current.add(item.id); setSavingItems(new Set(pendingItems.current))
+    ++refreshVersion.current; setFeedLoading(false); setError(''); setFeedbackItem(null)
+    captureReadingPosition([item.id])
+    const hide = body.action !== 'interested', markRead = body.action !== 'duplicate'
+    const delta = !item.is_read && (hide || markRead) ? -1 : 0
+    setItems(current => hide ? current.filter(row => row.id !== item.id) : current.map(row => row.id === item.id ? { ...row, is_read: true } : row))
+    setReader(current => current?.id === item.id && markRead ? { ...current, is_read: true } : current)
+    setFeedback(current => [{ id: localId, item_id: item.id, title: item.title, action: body.action, reason: body.reason || null, undone_at: null }, ...current])
+    setFeedDiagnostics(current => current ? { ...current, unread_count: Math.max(0, current.unread_count + delta), eligible_count: Math.max(0, current.eligible_count - Number(hide)), returned_count: Math.max(0, current.returned_count - Number(hide)) } : current)
+    try {
+      const result = await api<{ id: string }>('/feedback', token, { method: 'POST', body: JSON.stringify(body) })
+      if (version !== bodyVersion.current) return false
+      setFeedback(current => current.map(event => event.id === localId ? { ...event, id: result.id } : event))
+      queueReconcile()
+      return true
+    } catch (cause) {
+      if (version !== bodyVersion.current) return false
+      captureReadingPosition([item.id])
+      setItems(current => hide ? [...current, item] : current.map(row => row.id === item.id ? item : row))
+      setReader(current => current?.id === item.id ? item : current)
+      setFeedback(current => current.filter(event => event.id !== localId))
+      setFeedDiagnostics(current => current ? { ...current, unread_count: current.unread_count - delta, eligible_count: current.eligible_count + Number(hide), returned_count: current.returned_count + Number(hide) } : current)
+      setError(`反馈未保存，已恢复：${(cause as Error).message}`)
+      return false
+    } finally {
+      if (version === bodyVersion.current) { pendingItems.current.delete(item.id); setSavingItems(new Set(pendingItems.current)) }
+    }
+  }
   async function mutate(path: string, method: string, body?: unknown) {
+    if (path === '/reading') { const value = body as { item_id: string; read: boolean }; return saveReading([value.item_id], value.read) }
+    if (path === '/feedback') return saveFeedback(body as { item_id: string; action: string; reason?: string })
     if (busy) return false
     setBusy(true); setError(''); setNotice('')
     try { await api(path, token, { method, ...(body ? { body: JSON.stringify(body) } : {}) }); await refresh(feedView, true, (body as { item_id?: string } | undefined)?.item_id); return true }
@@ -260,7 +342,7 @@ export default function App() {
     try { setAnswer(await api<Answer>('/ask', token, { method: 'POST', body: JSON.stringify({ question, use_model: useModel, use_search: useSearch }) })) }
     catch (cause) { const message = (cause as Error).message; setAskError(message); setError(message) } finally { setAsking(false); setBusy(false) }
   }
-  function logout() { ++bodyVersion.current; setArticleBodies({}); setReader(null); readingAnchor.current = null; ++runsVersion.current; setShowRuns(false); setPersonalRuns([]); setRunsLoading(false); ++translationVersion.current; setTranslations({}); setTranslatingId(null); setSharedUrl(''); ++searchVersion.current; setSearchReport(null); setBusy(false); ++refreshVersion.current; setFeedLoading(false); setFeedError(false); setFeedDiagnostics(null); setFeedbackItem(null); setUseSearch(false); localStorage.removeItem('signal-token'); setToken(''); setEmail(''); setPassword(''); setInvite(''); setCatalog([]); setPreferences({}); setQuestion(''); setEditing(false); setItems([]); setFeedback([]); setTopics([]); setWatches([]); setAnswer(null); setAsking(false); setAskError(''); setError(''); setNotice(''); setFilter('all'); setCoverages([]); setSources([]); setUnread(false); setQuickRead(false) }
+  function logout() { if (reconcileTimer.current) clearTimeout(reconcileTimer.current); pendingItems.current.clear(); setSavingItems(new Set()); setCheckedItems(new Set()); setBatchMode(false); setCollection(null); ++bodyVersion.current; setArticleBodies({}); setReader(null); readingAnchor.current = null; ++runsVersion.current; setShowRuns(false); setPersonalRuns([]); setRunsLoading(false); ++translationVersion.current; setTranslations({}); setTranslatingId(null); setSharedUrl(''); ++searchVersion.current; setSearchReport(null); setBusy(false); ++refreshVersion.current; setFeedLoading(false); setFeedError(false); setFeedDiagnostics(null); setFeedbackItem(null); setUseSearch(false); localStorage.removeItem('signal-token'); setToken(''); setEmail(''); setPassword(''); setInvite(''); setCatalog([]); setPreferences({}); setQuestion(''); setEditing(false); setItems([]); setFeedback([]); setTopics([]); setWatches([]); setAnswer(null); setAsking(false); setAskError(''); setError(''); setNotice(''); setFilter('all'); setCoverages([]); setSources([]); setUnread(false); setQuickRead(false) }
 
   if (!token) return <main className="login-page"><div className="login-title">阅讯<span>个人资讯阅读台</span></div><section className="login-box"><h1>{registering ? '创建账号' : '欢迎回来'}</h1><p>关注你关心的事，把消息集中在这里读。</p><form key={registering ? 'register' : 'login'} autoComplete={registering ? 'off' : 'on'} onSubmit={auth}>
     <label>邮箱<input name={registering ? 'signup-email' : 'login-email'} type="email" autoComplete={registering ? 'off' : 'username'} required value={email} onChange={e => setEmail(e.target.value)} /></label>
@@ -274,6 +356,9 @@ export default function App() {
   const matchedItems = [...items].sort((a, b) => Number(a.is_read) - Number(b.is_read) || (Date.parse(b.published_at || '') || 0) - (Date.parse(a.published_at || '') || 0)).filter(i => (filter === 'all' || i.matched_watch_ids.includes(filter)) && (!(unread || quickRead) || !i.is_read))
   const visible = quickRead ? matchedItems.slice(0, 3) : matchedItems
   const unreadCount = feedDiagnostics?.unread_count ?? items.filter(i => (filter === 'all' || i.matched_watch_ids.includes(filter)) && !i.is_read).length
+  const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+  const todayNews = items.filter(item => item.content_kind !== 'match' && item.published_at && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date(item.published_at)) === todayKey).length
+  const collectedToday = collection?.finished_at && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date(collection.finished_at)) === todayKey
   const hiddenCount = (feedDiagnostics?.hidden_not_interested ?? 0) + (feedDiagnostics?.hidden_duplicate ?? 0)
   const currentTopic = options.find(t => t.id === filter)
   const currentCoverage = coverages.find(c => c.watch_id === filter)
@@ -288,6 +373,7 @@ export default function App() {
     <div className="workspace"><section className="heading"><div><h1>{filter === 'all' ? '我的阅读台' : currentTopic?.name}</h1><p>{feedLoading ? '正在加载你的关注和消息…' : feedError ? '消息未加载完成，请重试。' : unreadCount ? `还有 ${unreadCount} 条未读。先看概况，再决定是否打开原文。` : '当前消息已读完。下次来源更新后再来看看。'}</p></div><button onClick={() => void refresh(feedView, true)} disabled={busy}>刷新</button></section>
     {error && <div className="message error" role="alert">{error}<button onClick={() => setError('')}>关闭</button></div>}{notice && <div className="message">{notice}</div>}
     {showRuns && <section className="settings run-history"><div className="section-title"><h2>我的运行记录</h2><button onClick={() => setShowRuns(false)}>收起</button></div><p>最近50条已记录操作；执行成功不代表回答准确。费用是按配置报价估算，缓存命中不一定产生新记录。</p><div className="run-actions"><button disabled={runsLoading} onClick={() => void loadRuns()}>刷新记录</button><button disabled={runsLoading || !personalRuns.length} onClick={exportRuns}>导出JSON</button></div>{runsLoading ? <p role="status">正在读取记录…</p> : !personalRuns.length ? <p>暂无已记录操作。完成一次模型问答或翻译后，刷新记录查看。</p> : personalRuns.map(run => <details key={run.id}><summary><span>{({ model_agent: '模型问答', evidence_answer: '库存检索', article_translation: '中文翻译', web_news_search_sync: '联网搜索', policy_denial: '权限拒绝', perfect_world_share_import: '分享导入', eastmoney_share_import: '文章导入' } as Record<string, string>)[run.kind] || run.kind} · {({ success: '完成', failure: '失败', running: '进行中' } as Record<string, string>)[run.status] || run.status}</span><small>{updateTime(run.started_at)} · {run.duration_ms === null ? '耗时待记录' : `${(run.duration_ms / 1000).toFixed(1)}秒`} · {typeof run.trace.estimated_cost_cny === 'number' ? `估算¥${run.trace.estimated_cost_cny.toFixed(5)}` : '费用未记录'}</small></summary><p>{run.id}</p><pre>{JSON.stringify(run.trace, null, 2)}</pre></details>)}</section>}
+    <div className="daily-status" role="status"><strong>{collection?.status === 'running' ? '后台正在更新资讯' : collectedToday ? '今天已执行自动采集' : '今天的自动采集尚未完成'}</strong><span>{feedView === 'news' ? `当前列表：今天发布 ${todayNews} 条` : '比赛记录按赛程更新'} · 最近完成：{updateTime(collection?.finished_at || null)}</span><small>{collection?.status === 'partial' ? '部分来源更新失败，已有资讯仍可阅读。' : '只展示实际收录的内容；来源没有发布或未被覆盖时，不保证每天都有当天新闻。'}</small></div>
     {editing && <section className="settings"><div className="section-title"><h2>管理关注</h2><button onClick={() => setEditing(false)}>收起</button></div><p>这里只列出你自己的关注。添加股票、指数或战队后，后台采集近30天新闻。</p><button disabled={busy} onClick={() => void mutate('/watches', 'PUT', { watch_id: 'gold:london', enabled: true })}>＋ 关注伦敦金</button><div className="topic-grid">{selected.map(t => <div className="managed-topic" key={t.id}><span>{t.name}</span><button disabled={busy} onClick={async () => {
       if (await mutate('/watches', 'PUT', { watch_id: t.id, enabled: false })) { if (filter === t.id) setFilter('all'); setNotice(`已删除关注“${t.name}”。已读与反馈保留，再次关注后可接着读。`) }
     }}>删除关注</button></div>)}</div>{options.some(t => !watches.includes(t.id)) && <details><summary>已移除关注，可恢复</summary>{options.filter(t => !watches.includes(t.id)).map(t => <button disabled={busy} key={t.id} onClick={() => void mutate('/watches', 'PUT', { watch_id: t.id, enabled: true })}>重新关注 {t.name}</button>)}</details>}{topics.filter(t => t.stock_code === '000001').map(t => <p key={t.id} className="hint">{t.name} 当前按平安银行匹配。若你要看上证指数：<button disabled={busy} onClick={() => void mutate(`/topics/${t.id}/as-index`, 'POST')}>改为上证指数</button></p>)}
@@ -298,25 +384,26 @@ export default function App() {
     {(currentTopic?.team_name || currentTopic?.stock_code || currentTopic?.index_code) && <form className="share-news-form" onSubmit={importSharedNews}><label htmlFor="shared-news-url">{currentTopic?.team_name ? '从完美世界电竞加入文章' : '从东方财富加入文章'}<input id="shared-news-url" type="url" required maxLength={500} disabled={busy} value={sharedUrl} onChange={e => setSharedUrl(e.target.value)} placeholder={currentTopic?.team_name ? '粘贴完美世界电竞的新闻分享链接' : '粘贴东方财富的财经或股票文章链接'} /></label><button disabled={busy || !sharedUrl.trim()} type="submit">加入这篇新闻</button><small>仅加入近30天、与当前关注对象相关的文章。保留原文链接，每人每天最多读取5次。</small></form>}
     {currentCoverage && <div className="coverage-note"><p>已收录：近30天新闻 {currentCoverage.news_count ?? 0} 条 · 比赛记录 {currentCoverage.match_count ?? 0} 条（含未来7天赛程）{currentCoverage.quality_excluded_count ? ` · 质量过滤 ${currentCoverage.quality_excluded_count} 条` : ''}</p>{feedView !== 'news' && <strong className={currentCoverage.status === 'failure' || currentCoverage.status === 'stale' || currentCoverage.status === 'partial' ? 'source-warning' : ''}>比赛来源：{sourceLabel(currentCoverage.status)}</strong>}<p>{currentCoverage.description}</p>{feedView !== 'news' && currentCoverage.last_result && <small className="run-summary">{pandascoreRun(currentCoverage.last_result)}</small>}<small>最新新闻：{date(currentCoverage.latest_news_at)} · 最新比赛记录：{date(currentCoverage.latest_match_at)}（可含待赛）。收录数未扣除个人反馈隐藏的内容。</small></div>}
     <div className="mobile-topics"><select aria-label="筛选关注" disabled={busy} value={filter} onChange={e => setFilter(e.target.value)}><option value="all">全部关注</option>{selected.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select><button onClick={() => setEditing(true)}>＋ 添加关注</button></div>
-    <div className="reading-layout"><section><div className="feed-toolbar"><div className="tabs" aria-label="消息类型">{([['news', '新闻'], ['matches', '比赛'], ['all', '新闻和比赛']] as const).map(([value, label]) => <button key={value} className={feedView === value ? 'chosen' : ''} disabled={busy} onClick={() => { if (feedView !== value) { ++refreshVersion.current; setItems([]); setFeedView(value) } }}>{label}</button>)}</div></div><p className="filter-note">未读在前，按发布时间从新到旧；已读在后。点“感兴趣”或提交“少看这类”反馈会自动标为已读。</p><p className="filter-note">{feedView === 'news' ? '仅展示近30天新闻；战队预测与赔率内容不展示，比分见「比赛」。' : feedView === 'matches' ? '近30天比赛记录与未来7天赛程；PandaScore 赛事数据不代表战队新闻。' : '近30天新闻与比赛记录，以及未来7天赛程。'}</p><div className="feed-toolbar"><div className="tabs"><button className={!unread && !quickRead ? 'chosen' : ''} onClick={() => { setUnread(false); setQuickRead(false) }}>全部</button><button className={unread && !quickRead ? 'chosen' : ''} onClick={() => { setUnread(true); setQuickRead(false) }}>未读 {unreadCount}</button><button className={quickRead ? 'chosen' : ''} onClick={() => setQuickRead(true)}>先读三条</button></div><span>{visible.length} 条消息</span></div>
+    <div className="reading-layout"><section><div className="feed-toolbar"><div className="tabs" aria-label="消息类型">{([['news', '新闻'], ['matches', '比赛']] as const).map(([value, label]) => <button key={value} className={feedView === value ? 'chosen' : ''} disabled={busy} onClick={() => { if (feedView !== value) { ++refreshVersion.current; setItems([]); setFeedView(value) } }}>{label}</button>)}</div></div><p className="filter-note">未读在前，按发布时间从新到旧；已读在后。点“感兴趣”或提交“少看这类”反馈会自动标为已读。</p><p className="filter-note">{feedView === 'news' ? '仅展示近30天新闻；战队预测与赔率内容不展示，比分见「比赛」。' : feedView === 'matches' ? '近30天比赛记录与未来7天赛程；PandaScore 赛事数据不代表战队新闻。' : '近30天新闻与比赛记录，以及未来7天赛程。'}</p><div className="feed-toolbar"><div className="tabs"><button className={!unread && !quickRead ? 'chosen' : ''} onClick={() => { setUnread(false); setQuickRead(false) }}>全部</button><button className={unread && !quickRead ? 'chosen' : ''} onClick={() => { setUnread(true); setQuickRead(false) }}>未读 {unreadCount}</button><button className={quickRead ? 'chosen' : ''} onClick={() => setQuickRead(true)}>先读三条</button></div><span>{visible.length} 条消息</span></div>
+      <div className="batch-toolbar"><button onClick={() => { setBatchMode(!batchMode); setCheckedItems(new Set()) }}>{batchMode ? '取消批量选择' : '批量已读'}</button>{batchMode && <><button onClick={() => setCheckedItems(new Set(visible.filter(item => !item.is_read && !savingItems.has(item.id)).map(item => item.id)))}>选择本页未读</button><button disabled={!checkedItems.size || [...checkedItems].some(id => savingItems.has(id))} onClick={() => void saveReading([...checkedItems], true, true)}>标为已读（{checkedItems.size}）</button></>}<button disabled={feedLoading || !visible.some(item => !item.is_read) || visible.some(item => savingItems.has(item.id))} onClick={() => void saveReading(visible.filter(item => !item.is_read).map(item => item.id), true, true)}>一键已读</button><small>仅将当前列表的未读消息标为已读，最多100条。</small><span role="status">{savingItems.size ? `正在后台保存 ${savingItems.size} 条…` : ''}</span></div>
       {feedView === 'news' && ['interview', 'roster', 'financial'].includes(searchFocus) && <p className="filter-note">仅展示：{({ interview: '战队采访', roster: '阵容与转会', financial: '财报与业绩' } as Record<string, string>)[searchFocus]}。切换类型只筛选已收录内容；点击搜索按钮才会联网搜索。</p>}
       {feedDiagnostics && <p className="filter-note">当前关注 · 当前栏目：候选 {feedDiagnostics.candidates} 条 · 类型过滤 {feedDiagnostics.kind_excluded ?? 0} 条 · 质量过滤 {feedDiagnostics.quality_excluded ?? 0} 条 · 反馈隐藏 {hiddenCount} 条 · 合并转载/同题 {feedDiagnostics.collapsed_sources ?? 0} 条 · 可展示 {feedDiagnostics.eligible_count} 条{feedDiagnostics.omitted_by_limit ? ` · 本页仅显示前 ${feedDiagnostics.returned_count} 条` : ''}{feedDiagnostics.candidate_limit_reached ? ' · 已达到500条候选上限' : ''}</p>}
       {!!feedDiagnostics?.hiding_feedback?.length && <details className="coverage-note" open={!visible.length}><summary>查看导致当前消息隐藏的反馈（最多20条）</summary>{feedDiagnostics.hiding_feedback.map(event => <div className="feedback" key={event.id}><div><strong>{event.action === 'duplicate' ? '重复消息' : '少看这类'}</strong><p>{event.title}</p></div><button disabled={busy} onClick={() => void mutate(`/feedback/${event.id}/undo`, 'POST')}>撤销这条反馈</button></div>)}</details>}
       {quickRead && <p className="filter-note">每次显示排序最靠前的三条未读。标为已读后，下一条会补上。</p>}
       {currentTopic?.stock_code && <p className="filter-note">证券代码：{currentTopic.stock_code} · 对象级匹配</p>}{currentTopic?.team_name && <p className="filter-note">CS2 战队：{currentTopic.team_name} · 对象级匹配</p>}
       {currentSearchReport && <div ref={searchResultRef} className={`message search-result${currentSearchReport.failed ? ' error' : ''}`} role={currentSearchReport.failed ? 'alert' : 'status'} aria-live="polite"><strong>{currentSearchReport.label || (currentSearchReport.pending ? '搜索进行中' : currentSearchReport.failed ? '搜索未完成' : '本次搜索结果')}</strong><div>{currentSearchReport.text}</div>{!!currentSearchReport.rejected?.length && <details><summary>查看被过滤的结果（{currentSearchReport.rejected.length}条）</summary><ul>{currentSearchReport.rejected.map((row, index) => <li key={index}>{row.url ? <a href={row.url} target="_blank" rel="noopener noreferrer">{row.title} ↗</a> : row.title}<div><small>{searchDropLabel(row.reason)} · {date(row.published_at)}</small></div></li>)}</ul></details>}</div>}
-      {feedLoading ? <div className="empty" role="status">正在加载近期消息…首次打开可能需要等待服务启动。</div> : feedError && !items.length ? <div className="empty" role="alert"><h2>资讯未加载完成</h2><p>暂时无法确认你的关注和消息，请刷新重试。</p><button disabled={busy} onClick={() => void refresh()}>重新加载</button></div> : !visible.length ? <div className="empty"><h2>{!watches.length ? '从添加关注开始' : unread || quickRead ? '没有未读消息' : hiddenCount ? '近期消息已被你的反馈隐藏' : feedView === 'news' && ['interview', 'roster', 'financial'].includes(searchFocus) ? `近30天暂无可展示的${({ interview: '采访', roster: '阵容与转会报道', financial: '财报与业绩资讯' } as Record<string, string>)[searchFocus] || '所选类型新闻'}` : feedDiagnostics?.quality_excluded ? '当前收录仅有预测或赔率内容，已过滤' : feedView === 'news' ? '近30天暂无相关新闻' : '当前时间范围暂无比赛记录'}</h2><p>{!watches.length ? '添加一个 A 股代码或 CS2 战队名称。' : unread || quickRead ? '切回全部，仍可查看已经读过的记录。' : hiddenCount ? `近30天候选 ${feedDiagnostics?.candidates ?? 0} 条：${feedDiagnostics?.hidden_not_interested ?? 0} 条被「少看这类」隐藏，${feedDiagnostics?.hidden_duplicate ?? 0} 条被「重复消息」隐藏。可在「最近反馈」撤销对应记录。` : feedView === 'news' && ['interview', 'roster', 'financial'].includes(searchFocus) ? `当前只展示所选类型；${feedDiagnostics?.kind_excluded ?? 0} 条其他类型新闻已排除。搜索未找到匹配内容时保持为空，不以综合新闻填充。可选择「近期新闻」查看全部类型。` : feedDiagnostics?.quality_excluded ? `已过滤 ${feedDiagnostics.quality_excluded} 条预测或赔率内容。可以选择上方「阵容与转会」或「战队采访」方向搜索；已有反馈仍保留。` : feedView === 'news' ? '当前关注近30天没有可展示的新闻候选，不使用旧赛果填充。可以搜索这个关注的新消息。' : '只展示近30天赛果与未来7天赛程，较早比赛已隐藏。'}</p>{filter !== 'all' && agent.search_configured && feedView === 'news' && <button disabled={busy} onClick={() => void searchNews()}>{busy ? '搜索中…' : '搜索这个关注的新消息'}</button>}<button onClick={() => setEditing(true)}>管理关注</button></div> : visible.map(item => <article id={`article-${item.id}`} data-feed-card={item.id} className={`card ${item.is_read ? 'read' : ''}`} key={item.id}><div className="card-meta"><span>{nameOf(item.watch_id)}</span><span>{item.source_name}</span><span>{item.content_kind_label}</span><time>{date(item.published_at)}</time><span className="ingestion">{item.ingestion_mode === 'search' ? '搜索发现 · 日期待核验' : ['rss', 'api'].includes(item.ingestion_mode) ? '自动同步' : '手动收录'}</span></div><h2><button className="article-title" onClick={e => openReader(item, e.currentTarget)}>{translations[item.id]?.title || item.title}</button></h2><div className="overview"><span>{translations[item.id] ? '中文机器翻译 · 标题与短摘录，非全文' : item.overview.kind}</span><p>{translations[item.id]?.summary || item.overview.text}</p></div>
+      {feedLoading ? <div className="empty" role="status">正在加载近期消息…首次打开可能需要等待服务启动。</div> : feedError && !items.length ? <div className="empty" role="alert"><h2>资讯未加载完成</h2><p>暂时无法确认你的关注和消息，请刷新重试。</p><button disabled={busy} onClick={() => void refresh()}>重新加载</button></div> : !visible.length ? <div className="empty"><h2>{!watches.length ? '从添加关注开始' : unread || quickRead ? '没有未读消息' : hiddenCount ? '近期消息已被你的反馈隐藏' : feedView === 'news' && ['interview', 'roster', 'financial'].includes(searchFocus) ? `近30天暂无可展示的${({ interview: '采访', roster: '阵容与转会报道', financial: '财报与业绩资讯' } as Record<string, string>)[searchFocus] || '所选类型新闻'}` : feedDiagnostics?.quality_excluded ? '当前收录仅有预测或赔率内容，已过滤' : feedView === 'news' ? '近30天暂无相关新闻' : '当前时间范围暂无比赛记录'}</h2><p>{!watches.length ? '添加一个 A 股代码或 CS2 战队名称。' : unread || quickRead ? '切回全部，仍可查看已经读过的记录。' : hiddenCount ? `近30天候选 ${feedDiagnostics?.candidates ?? 0} 条：${feedDiagnostics?.hidden_not_interested ?? 0} 条被「少看这类」隐藏，${feedDiagnostics?.hidden_duplicate ?? 0} 条被「重复消息」隐藏。可在「最近反馈」撤销对应记录。` : feedView === 'news' && ['interview', 'roster', 'financial'].includes(searchFocus) ? `当前只展示所选类型；${feedDiagnostics?.kind_excluded ?? 0} 条其他类型新闻已排除。搜索未找到匹配内容时保持为空，不以综合新闻填充。可选择「近期新闻」查看全部类型。` : feedDiagnostics?.quality_excluded ? `已过滤 ${feedDiagnostics.quality_excluded} 条预测或赔率内容。可以选择上方「阵容与转会」或「战队采访」方向搜索；已有反馈仍保留。` : feedView === 'news' ? '当前关注近30天没有可展示的新闻候选，不使用旧赛果填充。可以搜索这个关注的新消息。' : '只展示近30天赛果与未来7天赛程，较早比赛已隐藏。'}</p>{filter !== 'all' && agent.search_configured && feedView === 'news' && <button disabled={busy} onClick={() => void searchNews()}>{busy ? '搜索中…' : '搜索这个关注的新消息'}</button>}<button onClick={() => setEditing(true)}>管理关注</button></div> : visible.map(item => <article id={`article-${item.id}`} data-feed-card={item.id} className={`card ${item.is_read ? 'read' : ''}`} key={item.id}><div className="card-meta">{batchMode && !item.is_read && <label className="batch-check"><input type="checkbox" aria-label={`选择 ${item.title}`} checked={checkedItems.has(item.id)} disabled={savingItems.has(item.id)} onChange={e => setCheckedItems(current => { const next = new Set(current); if (e.target.checked) next.add(item.id); else next.delete(item.id); return next })} />选择</label>}<span>{nameOf(item.watch_id)}</span><span>{item.source_name}</span><span>{item.content_kind_label}</span><time>{date(item.published_at)}</time><span className="ingestion">{item.ingestion_mode === 'search' ? '搜索发现 · 日期待核验' : ['rss', 'api'].includes(item.ingestion_mode) ? '自动同步' : '手动收录'}</span></div><h2><button className="article-title" onClick={e => openReader(item, e.currentTarget)}>{translations[item.id]?.title || item.title}</button></h2><div className="overview"><span>{translations[item.id] ? '中文机器翻译 · 标题与短摘录，非全文' : item.overview.kind}</span><p>{translations[item.id]?.summary || item.overview.text}</p></div>
       {(item.source_count ?? 1) > 1 && <button className="source-count" onClick={e => openReader(item, e.currentTarget)}>{item.event_group_basis === 'exact_title_same_day' ? '同题内容' : '同一事件'} · {item.source_count} 个来源，在阅读面板查看</button>}
       {translations[item.id] ? <details className="translation-original"><summary>查看原文标题与摘录</summary><strong>{item.title}</strong><p>{item.overview.text}</p><small>{translations[item.id].cache_hit ? '复用已保存译文，本次未调用模型。' : '译文可能有误，请以原文核对数字和名称。'}</small></details> : agent.configured && item.content_kind !== 'match' && needsChineseTranslation(item.title, item.overview.text) && <div className="translation-control"><button disabled={busy || !!translatingId} onClick={() => void translateArticle(item)}>{translatingId === item.id ? '正在翻译…' : '译成中文'}</button><small>标题与短摘录发送给模型服务，费用计入现有模型预算。</small></div>}
-        <div className="card-footer"><span className="ranking-reason">{item.reason}</span><button className="read-toggle" disabled={busy} onClick={() => void mutate('/reading', 'PUT', { item_id: item.id, read: !item.is_read })}>{item.is_read ? '已读 · 改为未读' : '标为已读'}</button></div>
-        <div className="actions"><button disabled={busy} onClick={() => void mutate('/feedback', 'POST', { item_id: item.id, action: 'interested', reason: !item.content_kind || item.content_kind === 'other' ? 'hide_only' : 'content_type' })}>感兴趣</button><button disabled={busy} onClick={() => setFeedbackItem(feedbackItem === item.id ? null : item.id)}>少看这类</button><button disabled={busy} onClick={() => void mutate('/feedback', 'POST', { item_id: item.id, action: 'duplicate' })}>重复消息</button><button onClick={e => openReader(item, e.currentTarget)}>在阅讯阅读</button></div>{feedbackItem === item.id && <div className="feedback-options"><p>这次想减少什么？</p>{([...(item.content_kind && item.content_kind !== 'other' ? [{ reason: 'content_type', label: `少看${item.content_kind_label}` }] : []), { reason: 'source', label: '少看这个来源' }, { reason: 'hide_only', label: '只隐藏这一条' }]).map(option => <button key={option.reason} disabled={busy} onClick={async () => { if (await mutate('/feedback', 'POST', { item_id: item.id, action: 'not_interested', reason: option.reason })) setFeedbackItem(null) }}>{option.label}</button>)}<button onClick={() => setFeedbackItem(null)}>取消</button><small>仅影响当前关注对象：同类或同来源内容减少推荐与定向采集，这一条会隐藏并标为已读；可在最近反馈撤销。</small></div>}</article>)}
+        <div className="card-footer"><span className="ranking-reason">{item.reason}</span><button className="read-toggle" disabled={savingItems.has(item.id)} onClick={() => void mutate('/reading', 'PUT', { item_id: item.id, read: !item.is_read })}>{item.is_read ? '已读 · 改为未读' : '标为已读'}</button></div>
+        <div className="actions"><button disabled={savingItems.has(item.id)} onClick={() => void mutate('/feedback', 'POST', { item_id: item.id, action: 'interested', reason: !item.content_kind || item.content_kind === 'other' ? 'hide_only' : 'content_type' })}>感兴趣</button><button disabled={savingItems.has(item.id)} onClick={() => setFeedbackItem(feedbackItem === item.id ? null : item.id)}>少看这类</button><button disabled={savingItems.has(item.id)} onClick={() => void mutate('/feedback', 'POST', { item_id: item.id, action: 'duplicate' })}>重复消息</button><button onClick={e => openReader(item, e.currentTarget)}>在阅讯阅读</button></div>{feedbackItem === item.id && <div className="feedback-options"><p>这次想减少什么？</p>{([...(item.content_kind && item.content_kind !== 'other' ? [{ reason: 'content_type', label: `少看${item.content_kind_label}` }] : []), { reason: 'source', label: '少看这个来源' }, { reason: 'hide_only', label: '只隐藏这一条' }]).map(option => <button key={option.reason} disabled={savingItems.has(item.id)} onClick={async () => { await mutate('/feedback', 'POST', { item_id: item.id, action: 'not_interested', reason: option.reason }) }}>{option.label}</button>)}<button onClick={() => setFeedbackItem(null)}>取消</button><small>仅影响当前关注对象：同类或同来源内容减少推荐与定向采集，这一条会隐藏并标为已读；可在最近反馈撤销。</small></div>}</article>)}
     </section><aside className="secondary"><section className="panel"><h2>本次阅读</h2><div className="reading-count"><strong>{unreadCount}</strong><span>未读 / 共 {items.length} 条</span></div><p>已读记录按账号保存，换设备后仍能接着读。标为已读、感兴趣或提交少看这类反馈，都会记录为已读。</p><button onClick={() => setUnread(true)}>只看未读</button></section>
       <section className="panel"><h2>查一查消息</h2><p>支持关注名称或股票代码。默认查询已收录记录，可开启联网补搜。“最近”默认近 30 天，也支持“近 30 天”和“今天”。</p><label className="model-toggle"><input type="checkbox" checked={useModel} disabled={!agent.configured} onChange={e => setUseModel(e.target.checked)} />模型工具问答{agent.configured ? ` · ${agent.model}` : agentStatus === 'ready' ? "（尚未配置）" : agentStatus === 'error' ? "（配置状态获取失败，请刷新）" : "（正在检查配置）"}</label><label className="model-toggle"><input type="checkbox" checked={useSearch} disabled={!useModel || !agent.search_configured} onChange={e => setUseSearch(e.target.checked)} />允许库存不足时联网补搜一次</label><p><small>补搜仅将公开关注对象及固定搜索类别发送给搜索服务；不发送问题原文或个人反馈。开启模型后，本次问题、关注名称及检索到的短证据会发送给配置的模型服务；邮箱、密钥和完整反馈历史不发送。</small></p><form onSubmit={ask}><textarea className="query-input" placeholder="例如：总结绿龙最近的比赛和战队消息，列出依据" aria-label="资讯问题" minLength={3} maxLength={300} value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => {
         if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return
         e.preventDefault()
         if (!e.repeat && !busy && question.trim().length >= 3) e.currentTarget.form?.requestSubmit()
       }} /><small className="hint">Enter 提问 · Shift+Enter 换行</small><button className="primary" disabled={busy || question.trim().length < 3}>{asking ? '正在查询…' : '查找'}</button></form>{asking && <p role="status">正在检索与整理证据，请稍候。</p>}{askError && <div className="answer" role="alert"><strong>本次问答未完成</strong><p>{askError}</p><small>若请求超时，请先查看顶部「运行记录」，确认是否已完成，再决定是否重新提交。</small></div>}{answer && <div className="answer"><small>{answer.mode === "permission_denied" ? "权限限制" : answer.mode === "model_agent" ? "模型工具回答" : answer.mode === "model_fallback" ? "模型失败 · 检索回退" : answer.mode === "model_no_evidence" ? "没有可引用证据" : "已入库检索"}</small><p>{answer.notice}</p><p>{answer.answer}</p>{answer.citations.map((c, i) => c.url ? <a key={i} href={c.url} target="_blank" rel="noopener noreferrer">{c.title} ↗</a> : <p key={i}><strong>{c.title}</strong><br /><small>{c.source_name} · API 记录，无原文网页</small></p>)}<details><summary>查询记录</summary><small>{answer.run_id}</small><button type="button" onClick={() => { api<unknown>(`/runs/${answer.model_run_id || answer.run_id}`, token).then(r => setRunTrace(JSON.stringify(r, null, 2))).catch(e => setRunTrace(e.message)) }}>查看工具与费用记录</button><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{runTrace}</pre></details></div>}</section>
-      <section className="panel"><h2>最近反馈</h2>{feedback.filter(e => !e.undone_at).slice(0, 5).map(e => <div className="feedback" key={e.id}><div><strong>{e.action === 'interested' ? '感兴趣' : e.action === 'duplicate' ? '重复消息' : '少看这类'}</strong><p>{items.find(i => i.id === e.item_id)?.title || '已反馈的消息'}<br />{e.action === 'duplicate' ? '范围：同一事件' : e.reason === 'content_type' ? '范围：同一关注对象的同类内容' : e.reason === 'source' ? '范围：同一关注对象的同一来源' : e.reason === 'hide_only' ? '范围：仅这一条' : '范围：相关关注对象（旧反馈）'}</p></div><button disabled={busy} onClick={() => void mutate(`/feedback/${e.id}/undo`, 'POST')}>撤销</button></div>)}{!feedback.some(e => !e.undone_at) && <p>还没有反馈。选“少看这类”后，可选择内容类型、来源或只隐藏这一条；可以随时撤销。</p>}</section>
+      <section className="panel"><h2>最近反馈</h2>{feedback.filter(e => !e.undone_at).slice(0, 5).map(e => <div className="feedback" key={e.id}><div><strong>{e.action === 'interested' ? '感兴趣' : e.action === 'duplicate' ? '重复消息' : '少看这类'}</strong><p>{e.title || items.find(i => i.id === e.item_id)?.title || '已反馈的消息'}<br />{e.action === 'duplicate' ? '范围：同一事件' : e.reason === 'content_type' ? '范围：同一关注对象的同类内容' : e.reason === 'source' ? '范围：同一关注对象的同一来源' : e.reason === 'hide_only' ? '范围：仅这一条' : '范围：相关关注对象（旧反馈）'}</p></div><button disabled={busy || e.id.startsWith('pending-')} onClick={() => void mutate(`/feedback/${e.id}/undo`, 'POST')}>撤销</button></div>)}{!feedback.some(e => !e.undone_at) && <p>还没有反馈。选“少看这类”后，可选择内容类型、来源或只隐藏这一条；可以随时撤销。</p>}</section>
     </aside></div></div></main>{reader && <dialog ref={readerDialog} className="article-reader" aria-labelledby="reader-title" onCancel={e => { e.preventDefault(); closeReader() }}>
       <div className="reader-toolbar"><span>阅讯 · 阅读</span><button autoFocus onClick={closeReader}>关闭阅读</button></div>
       <article><div className="card-meta"><span>{reader.source_name}</span><time>{date(reader.published_at)}</time><span>{reader.content_kind_label}</span></div>
@@ -324,9 +411,9 @@ export default function App() {
       <p className="reader-boundary">{reader.content_kind === 'match' ? '赛事记录' : articleBodies[reader.id]?.body ? '原文正文' : '正在从来源读取正文'}</p>
       {reader.content_kind === 'match' ? <div className="reader-content">{reader.overview.text}</div> : articleBodies[reader.id]?.body ? <ArticleBody body={articleBodies[reader.id].body!} /> : articleBodies[reader.id]?.loading ? <p role="status">正在提取原文正文，首次读取需要几秒…</p> : <div role="alert"><p>{articleBodies[reader.id]?.error || '正文暂不可用'}</p><button onClick={e => openReader(reader, e.currentTarget)}>重试读取正文</button><h2>来源摘录</h2><p>{reader.overview.text}</p></div>}
       {!!reader.related_sources?.length && <details><summary>其他来源</summary>{reader.related_sources.map(source => <p key={source.id}>{source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.source_name} · {source.title} ↗</a> : source.title}</p>)}</details>}
-      </article><div className="reader-actions"><button disabled={busy} onClick={async () => {
+      </article><div className="reader-actions"><button disabled={savingItems.has(reader.id)} onClick={async () => {
         const read = !reader.is_read
-        if (await mutate('/reading', 'PUT', { item_id: reader.id, read })) setReader(current => current?.id === reader.id ? { ...current, is_read: read } : current)
+        await mutate('/reading', 'PUT', { item_id: reader.id, read })
       }}>{reader.is_read ? '已读 · 改为未读' : '标为已读'}</button>{reader.url ? <a href={reader.url} target="_blank" rel="noopener noreferrer">到来源网站阅读原文 ↗</a> : <span>API 赛事记录，无原文网页</span>}</div>
       {error && <p role="alert">{error}</p>}
     </dialog>}</div>

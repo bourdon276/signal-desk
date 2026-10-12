@@ -41,7 +41,7 @@ from information_agent.ranking import ranked_items
 from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
-from information_agent.sync_worker import request_sync
+from information_agent.sync_worker import request_sync, run_once
 from information_agent.web_search import FOCUSES, STOCK_DOMAINS, normalize_result, targets
 
 router = APIRouter(prefix="/api")
@@ -105,6 +105,28 @@ class TopicInput(BaseModel):
 class ReadingInput(BaseModel):
     item_id: str
     read: bool
+
+
+class BatchReadingInput(BaseModel):
+    item_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+@router.put("/reading/batch")
+def batch_reading(
+    payload: BatchReadingInput, user: User = Depends(current_user), db: Session = Depends(get_db),
+) -> dict:
+    ids = list(dict.fromkeys(payload.item_ids))
+    enabled, topics = user_scope(db, user.id)
+    rows = list(db.scalars(select(Item).where(Item.id.in_(ids))))
+    if len(rows) != len(ids) or any(not matches(item, enabled, topics) for item in rows):
+        raise HTTPException(status_code=404, detail="部分资讯已不在你的关注范围内，请刷新后重试")
+    insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+    db.execute(
+        insert(Reading).values([{"user_id": user.id, "item_id": item_id} for item_id in ids])
+        .on_conflict_do_nothing(index_elements=["user_id", "item_id"])
+    )
+    db.commit()
+    return {"item_ids": ids, "read": True}
 
 
 @router.post("/topics/{topic_id}/as-index")
@@ -266,6 +288,14 @@ def normalize_url(value: str) -> str:
 def require_admin(token: str | None) -> None:
     if not settings.admin_token or token is None or not hmac.compare_digest(token, settings.admin_token):
         raise HTTPException(status_code=403, detail="无管理权限")
+
+
+@router.post("/admin/sync")
+def scheduled_sync(x_sync_token: str | None = Header(default=None)) -> dict:
+    expected = settings.sync_trigger_token.get_secret_value()
+    if len(expected) < 32 or x_sync_token is None or not hmac.compare_digest(x_sync_token, expected):
+        raise HTTPException(status_code=403, detail="无采集调度权限")
+    return run_once()
 
 
 @router.get("/catalog")
@@ -438,7 +468,18 @@ def desk(
     db: Session = Depends(get_db),
 ) -> dict:
     """One authenticated round-trip for the first useful screen; no external I/O."""
+    last_collection = db.scalar(
+        select(AgentRun).where(AgentRun.kind == "scheduled_collection").order_by(AgentRun.started_at.desc()).limit(1)
+    )
     return {
+        "collection": {
+            "status": last_collection.status if last_collection else "not_run",
+            "started_at": last_collection.started_at.isoformat() if last_collection else None,
+            "finished_at": (
+                last_collection.finished_at.isoformat()
+                if last_collection and last_collection.finished_at else None
+            ),
+        },
         "watches": list_watches(user, db),
         "feed": feed(view, watch_id, news_kind, 100, user, db),
         "feedback": list_feedback(user, db),

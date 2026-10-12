@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     registration_code: str = ""
     cors_origins: str = "http://localhost:5173"
     sync_in_web: bool = False
+    sync_trigger_token: SecretStr = SecretStr("")
     steam_use_env_proxy: bool = False
     cninfo_access_token: SecretStr = SecretStr("")
     cninfo_display_allowed: bool = False

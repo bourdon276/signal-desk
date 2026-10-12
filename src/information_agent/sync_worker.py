@@ -1,15 +1,19 @@
 """Small fixed-source scheduler for the MVP deployment."""
 
+import json
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
+from information_agent.db import SessionLocal
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
 from information_agent.ingest_pandascore import sync as sync_pandascore
 from information_agent.ingest_perfect_news import sync as sync_perfect_news
 from information_agent.ingest_team_news import sync as sync_team_news
 from information_agent.ingest_team_news import sync_dust2
+from information_agent.models import AgentRun, now_utc
 from information_agent.web_search import sync as sync_web_news
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -23,6 +27,8 @@ SYNCERS = {
     "stock_announcements": sync_cninfo,
     "web_news": sync_web_news,
 }
+_SOURCE_LOCKS = {name: threading.Lock() for name in SYNCERS}
+_ROUND_LOCK = threading.Lock()
 _REQUESTED: set[str] = set()
 _REQUEST_LOCK = threading.Lock()
 _REQUEST_WAKE = threading.Event()
@@ -38,17 +44,57 @@ def request_sync(name: str) -> bool:
     return True
 
 
-def _run_sources(names) -> None:
-    for name in names:
-        try:
-            logging.info("%s synced: %s", name, SYNCERS[name]())
-        except Exception as exc:
-            logging.error("%s sync failed (%s); existing items retained", name, type(exc).__name__)
+def _run_source(name: str) -> dict:
+    # The scheduled request and the in-web loop share fixed-source locks.
+    if not _SOURCE_LOCKS[name].acquire(blocking=False):
+        return {"status": "running"}
+    try:
+        result = SYNCERS[name]()
+        logging.info("%s synced: %s", name, result)
+        return result
+    except Exception as exc:
+        logging.error("%s sync failed (%s); existing items retained", name, type(exc).__name__)
+        return {"status": "failure", "error_type": type(exc).__name__}
+    finally:
+        _SOURCE_LOCKS[name].release()
+
+
+def _run_sources(names) -> dict:
+    names = tuple(names)
+    # Only two concurrent sources on the small web instance; each owns its DB session.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="collect") as pool:
+        return dict(zip(names, pool.map(_run_source, names), strict=True))
+
+
+def run_once() -> dict:
+    if not _ROUND_LOCK.acquire(blocking=False):
+        return {"status": "running", "message": "已有采集轮次正在执行"}
+    try:
+        with SessionLocal() as db:
+            run = AgentRun(kind="scheduled_collection", status="running", detail="")
+            db.add(run)
+            db.commit()
+            run_id = run.id
+        results = _run_sources(SYNCERS)
+        failed = any(row.get("status") in {"failure", "partial"} for row in results.values())
+        status = "partial" if failed else "success"
+        with SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            run.status = status
+            run.finished_at = now_utc()
+            run.detail = json.dumps(results, ensure_ascii=False)
+            db.commit()
+        return {"status": status, "run_id": run_id, "sources": results}
+    finally:
+        _ROUND_LOCK.release()
 
 
 def run_loop(stop: threading.Event | None = None) -> None:
     while stop is None or not stop.is_set():
-        _run_sources(tuple(SYNCERS))
+        try:
+            run_once()
+        except Exception as exc:
+            logging.error("collection round failed (%s); next round will retry", type(exc).__name__)
         deadline = time.monotonic() + 3600
         while time.monotonic() < deadline:
             if stop is not None and stop.is_set():
@@ -65,7 +111,14 @@ def run_loop(stop: threading.Event | None = None) -> None:
 
 
 def main() -> None:
-    run_loop()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Collect fixed public news sources")
+    parser.add_argument("--once", action="store_true", help="Run one collection round, then exit")
+    if parser.parse_args().once:
+        print(json.dumps(run_once(), ensure_ascii=False))
+    else:
+        run_loop()
 
 
 if __name__ == "__main__":

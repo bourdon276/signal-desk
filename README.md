@@ -96,7 +96,9 @@ uv run uvicorn information_agent.main:app --reload
 
 前端开发：后端运行时执行 `npm --prefix web run dev`，访问 `http://127.0.0.1:5173/`。前端修改后重新构建即可由 FastAPI 提供。
 
-周期采集：`uv run python -m information_agent.sync_worker`。本地单独启动此进程；部署实例可设置 `SYNC_IN_WEB=true`。免费服务休眠期间不会持续采集。
+周期采集：`uv run python -m information_agent.sync_worker`。本地单独启动此进程；部署实例可设置 `SYNC_IN_WEB=true`。免费服务休眠期间不会持续采集。现提供独立的 GitHub Actions 每日三轮调度，需在 Render/GitHub 配置 `SYNC_TRIGGER_TOKEN`；[配置与首访延迟说明](docs/daily-collection.md)。
+
+阅读操作先即时更新界面、后台保存，失败会恢复原状态；反馈按连续点击合并校准列表。支持「批量已读」勾选消息与「一键已读」当前列表（最多100条），不会标记其他关注或未加载的消息。新闻和比赛分别展示。
 
 停止数据库用 `docker compose down`，命名卷保留数据；`docker compose down -v` 会删除本地数据库。Colima 可用 `colima stop` 释放运行时资源。
 
