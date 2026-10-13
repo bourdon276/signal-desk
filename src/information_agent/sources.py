@@ -41,7 +41,8 @@ SOURCE_SPECS = [
         "watch_id": "public_entities",
         "label": "公开新闻搜索",
         "automatic": search_configured(),
-        "description": "搜索关注的股票/CS2战队，允许名单来源、近30天、共享缓存。"
+        "description": "搜索关注的股票、指数、伦敦金与CS2战队；自动采集最近24小时，主动补搜近30天。"
+        "兴趣反馈可增加类型方向、避开不喜欢的网站；使用固定来源名单与共享缓存。"
         "结果为搜索摘录，全文与发布日期未独立核验；请求成功不代表覆盖完整。",
     },
     {
@@ -210,6 +211,8 @@ def coverage(db, user_id):
         elif watch_id == "gold:london":
             spec = next(s for s in SOURCE_SPECS if s["watch_id"] == watch_id)
             auto, source, note = True, state(db, spec["kind"], True), spec["description"]
+            note = "美联储政策RSS持续更新；黄金媒体搜索补充现货黄金与宏观报道，含中英文来源。"
+            note += "英文标题与摘录可译成中文；不提供实时金价。" if search_configured() else "媒体搜索等待配置。"
         elif watch_id == "esports:cs2":
             auto = pandascore_configured()
             source = state(db, PANDASCORE_KIND, auto)

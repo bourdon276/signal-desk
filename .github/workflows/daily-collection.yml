@@ -28,17 +28,51 @@ jobs:
         run: |
           curl --fail --silent --show-error --connect-timeout 15 --max-time 180 \
             --retry 2 --retry-delay 15 "$SERVICE_URL/ready" > /dev/null
+          export COLLECTION_REQUESTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           # No retries for the mutation: timeout may mean the job is still running.
           curl --fail --silent --show-error --connect-timeout 15 --max-time 1200 \
             -X POST -H "X-Sync-Token: $SYNC_TRIGGER_TOKEN" \
             "$SERVICE_URL/api/admin/sync" -o collection.json
           python - <<'PY'
           import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import UTC, datetime
           from pathlib import Path
           result = json.loads(Path('collection.json').read_text())
+          if result['status'] == 'running':
+              # A waking instance starts its own collection; wait for that round.
+              # Read-only polling must never retry the collection POST.
+              requested = datetime.fromisoformat(os.environ['COLLECTION_REQUESTED_AT'])
+              url = os.environ['SERVICE_URL'] + '/api/admin/sync/status'
+              if result.get('run_id'):
+                  url += '?' + urllib.parse.urlencode({'run_id': result['run_id']})
+              class NoRedirect(urllib.request.HTTPRedirectHandler):
+                  def redirect_request(self, *args, **kwargs):
+                      raise RuntimeError('Unexpected scheduler status redirect')
+              opener = urllib.request.build_opener(NoRedirect)
+              request = urllib.request.Request(url, headers={'X-Sync-Token': os.environ['SYNC_TRIGGER_TOKEN']})
+              for attempt in range(36):
+                  time.sleep(15)
+                  try:
+                      with opener.open(request, timeout=20) as response:
+                          status = json.loads(response.read(128000))
+                  except (urllib.error.URLError, TimeoutError):
+                      continue
+                  finished = status.get('finished_at')
+                  fresh = result.get('run_id') or (finished and datetime.fromisoformat(finished)
+                                                  .replace(tzinfo=UTC) >= requested)
+                  if fresh and status['status'] in {'success', 'partial', 'failure'}:
+                      result = status
+                      break
+              else:
+                  raise SystemExit('Collection is still running or status unavailable; inspect Render logs.')
           print(json.dumps(result, ensure_ascii=False))
           if result['status'] == 'partial':
               print('::warning::Some sources failed; inspect the collection result.')
-          if result['status'] not in {'success', 'partial', 'running'}:
+          if result['status'] not in {'success', 'partial'}:
               raise SystemExit('Collection did not finish successfully')
           PY

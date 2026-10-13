@@ -16,9 +16,12 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from information_agent.acquisition_preferences import acquisition_profile, preferred_focus
+from information_agent.acquisition_preferences import acquisition_profile
 from information_agent.config import settings
 from information_agent.db import SessionLocal
+from information_agent.discovery_policy import GOLD_DOMAINS, discovery_plan
+from information_agent.discovery_policy import STOCK_DOMAINS as STOCK_DOMAINS
+from information_agent.discovery_policy import TEAM_DOMAINS as TEAM_DOMAINS
 from information_agent.domain import INDEX_NAMES, STOCK_NAMES
 from information_agent.entities import canonical_team_name, is_team_watch_id
 from information_agent.ingest_common import safe_link, store_item
@@ -33,11 +36,8 @@ from information_agent.preferences import content_kind
 from information_agent.search_provider import configured, provider
 
 KIND = "web_news_search_sync"
-FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market"}
-TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg",
-                "dust2.com.br", "news.wmpvp.com", "5eplay.com"]
-SEARCH_POLICY_VERSION = "entity-news-v7-index-name-only"
-STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
+FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market", "gold_market"}
+SEARCH_POLICY_VERSION = "entity-news-v8-gold-source-preferences"
 
 
 def targets(db, user_id: str | None = None) -> dict[str, dict]:
@@ -51,7 +51,9 @@ def targets(db, user_id: str | None = None) -> dict[str, dict]:
         enabled, topics = user_scope(db, user_id)
     result = {}
     for marker in sorted(enabled):
-        if re.fullmatch(r"stock:[0-9]{6}", marker):
+        if marker == "gold:london":
+            result[marker] = {"watch_id": marker, "name": "spot gold XAUUSD", "kind": "gold"}
+        elif re.fullmatch(r"stock:[0-9]{6}", marker):
             result[marker] = {"watch_id": marker, "name": STOCK_NAMES.get(marker[6:], marker[6:]), "kind": "stock"}
         elif marker in INDEX_NAMES:
             result[marker] = {"watch_id": marker, "name": INDEX_NAMES[marker], "kind": "index"}
@@ -78,15 +80,22 @@ def targets(db, user_id: str | None = None) -> dict[str, dict]:
 
 def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
     name = re.sub(r"[^\w .-]", " ", target["name"])[:60]
-    if target["kind"] in {"stock", "index"}:
+    if target["kind"] == "gold":
+        suffix = "Federal Reserve inflation central bank news" if focus == "macro" else "market news"
+        query, domains = f"spot gold XAUUSD {suffix}", GOLD_DOMAINS
+    elif target["kind"] in {"stock", "index"}:
         suffix = {
             "financial": "财报 业绩", "macro": "宏观 经济 政策 新闻", "market": "市场 动态 新闻",
         }.get(focus, "新闻")
         query = (f"{name} {suffix}" if target["kind"] == "index"
                  else f"{name} {target['watch_id'].rsplit(':', 1)[-1]} {suffix}")
-        return query, STOCK_DOMAINS
-    suffix = {"roster": "roster transfer", "interview": "interview"}.get(focus, "news")
-    return f"{name} CS2 {suffix}", TEAM_DOMAINS
+        domains = STOCK_DOMAINS
+    else:
+        suffix = {"roster": "roster transfer", "interview": "interview"}.get(focus, "news")
+        query, domains = f"{name} CS2 {suffix}", TEAM_DOMAINS
+    # Internal plans may narrow an allowlist, never widen it or supply arbitrary hosts.
+    narrowed = [domain for domain in domains if domain in target.get("search_domains", domains)]
+    return query, narrowed if len(narrowed) >= 2 else list(domains)
 
 
 def timestamp(value) -> datetime | None:
@@ -123,7 +132,7 @@ def normalize_result(row, target, domains, now):
     if not url:
         return None, "unapproved_url"
     parts = urlsplit(url)
-    if target["kind"] in {"stock", "index"} and (
+    if target["kind"] in {"stock", "index", "gold"} and (
         host == "quote.eastmoney.com" or (host == "egs.stcn.com" and parts.path.startswith("/quotation/"))
     ):
         return None, "not_news_article"
@@ -152,7 +161,22 @@ def normalize_result(row, target, domains, now):
     if not now - timedelta(days=30) <= stamp <= now:
         return None, "outside_30_days"
     text = title + " " + excerpt
-    if target["kind"] in {"stock", "index"}:
+    if target["kind"] == "gold":
+        if not re.search(r"伦敦金|现货黄金|国际黄金|金价|\b(?:gold|bullion|xau/?usd)\b", text, re.I):
+            return None, "entity_mismatch"
+        # A gold keyword on a shop, quote or jewellery page is not market reporting.
+        article_path = (
+            bool(re.match(r"^/news/(?:\d{4}-\d{2}-\d{2}/|article/)", parts.path))
+            if host == "kitco.com" or host.endswith(".kitco.com") else
+            bool(re.match(r"^/news/[^/]+-\d{10,}", parts.path))
+            if host == "fxstreet.com" or host.endswith(".fxstreet.com") else
+            bool(re.search(r"\d{6,}", parts.path))
+        )
+        if not article_path:
+            return None, "not_news_article"
+        if re.search(r"首饰|珠宝|金店|回收报价|今日金店|gold jewellery|gold jewelry", title, re.I):
+            return None, "not_gold_market_news"
+    elif target["kind"] in {"stock", "index"}:
         code = target["watch_id"].rsplit(":", 1)[-1]
         matched = re.search(r"(?<!\d)" + code + r"(?!\d)", text)
         known_name = target["name"] if target["name"] != code else None
@@ -184,7 +208,9 @@ def normalize_result(row, target, domains, now):
         "canonical_url": url,
         "title": title,
         "summary": excerpt or "",
-        "source_name": host + (" · 战队新闻" if target["kind"] == "team" else " · 股票资讯"),
+        "source_name": host + ({"team": " · 战队新闻", "gold": " · 黄金资讯"}.get(
+            target["kind"], " · 股票资讯",
+        )),
         "source_type": "media",
         "ingestion_mode": "search",
         "published_at": stamp,
@@ -277,7 +303,9 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         return {"status": "unsupported_focus", "results": [], "search_credits": 0}
     requested_focus = focus
     if focus == "auto":
-        focus = preferred_focus(target["kind"], target.get("preference", {}))
+        plan = discovery_plan(target["kind"], target.get("preference", {}))
+        target = {**target, "search_domains": plan["search_domains"]}
+        focus = plan["effective_focus"]
     query, domains = request_spec(target, focus)
     adapter = provider()
     key = search_cache_key(target, focus)
@@ -285,7 +313,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
     if cached is not None:
         return {
             **cached, "requested_focus": requested_focus, "effective_focus": focus,
-            "time_range": target.get("time_range", "month"),
+            "time_range": target.get("time_range", "month"), "search_domains": domains,
         }
     # Reservations count attempted requests, including uncertain failures; no automatic retries.
     with SessionLocal() as db:
@@ -294,15 +322,15 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         db.commit()
         run_id = run.id
     result = {"status": "failure", "results": [], "search_credits": 1, "cache_hit": False,
-              "effective_focus": focus, "time_range": target.get("time_range", "month")}
+              "effective_focus": focus, "time_range": target.get("time_range", "month"), "search_domains": domains}
     try:
         # Sports news uses the provider's article-oriented index; stock PDFs retain general search.
-        topic = "news" if target["kind"] == "team" else "general"
+        topic = "news" if target["kind"] in {"team", "gold"} else "general"
         rows = (await asyncio.wait_for(
             adapter.search(query, domains, topic=topic, time_range=target.get("time_range", "month")), timeout=15,
         ))[:12]
         enriched = 0
-        if target["kind"] in {"stock", "index"}:
+        if target["kind"] in {"stock", "index", "gold"}:
             # Search snippets can omit the named entity or publication date.
             # Read at most three approved publisher pages, without redirects.
             candidates = []
@@ -333,7 +361,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
                     dropped[reason] = dropped.get(reason, 0) + 1
                     rejected.append(rejection_detail(row, reason, domains))
                     continue
-                if focus in {"interview", "roster", "financial", "macro", "market"} and (
+                if focus in {"interview", "roster", "financial", "macro", "market", "gold_market"} and (
                     content_kind(SimpleNamespace(**values)) != focus
                 ):
                     dropped["focus_mismatch"] = dropped.get("focus_mismatch", 0) + 1
@@ -395,14 +423,18 @@ def sync() -> dict:
     if not configured():
         return {"status": "not_configured", "search_credits": 0}
     with SessionLocal() as db:
-        unique = {(value["watch_id"], "recent"): (value, "recent") for value in targets(db).values()}
+        unique = {search_cache_key({**value, "time_range": "day"}, "recent"): (value, "recent")
+                  for value in targets(db).values()}
         # Personalized public entity/type plans share cache, never account metadata.
         for user_id in sorted(set(db.scalars(select(Watch.user_id)))):
             profile = acquisition_profile(db, user_id)
             for watch_id, value in targets(db, user_id).items():
-                focus = preferred_focus(value["kind"], profile.get(watch_id, {}))
-                if focus != "recent":
-                    unique[(value["watch_id"], focus)] = (value, focus)
+                plan = discovery_plan(value["kind"], profile.get(watch_id, {}))
+                focus = plan["effective_focus"]
+                if focus != "recent" or plan["avoided_sources"]:
+                    value = {**value, "search_domains": plan["search_domains"]}
+                    key = search_cache_key({**value, "time_range": "day"}, focus)
+                    unique[key] = (value, focus)
         today = now_utc().astimezone(ZoneInfo("Asia/Shanghai"))
         used = db.get(SearchBudget, "day:" + today.strftime("%Y-%m-%d"))
         # Preserve the global daily credit cap across automated and manual discovery.
@@ -428,8 +460,14 @@ def sync() -> dict:
     return {
         "status": "partial" if any(r["status"] == "failure" for r in results) else "completed",
         "targets": len(results), "due_targets": len(due),
+        "planned_targets": len(unique),
+        "personalized_targets": sum(focus != "recent" or "search_domains" in value
+                                    for value, focus in unique.values()),
         "deferred_targets": max(0, len(due) - len(results)),
         "search_credits": sum(r["search_credits"] for r in results),
+        "entries": sum(r.get("entries", 0) for r in results),
+        "matched": sum(r.get("matched", 0) for r in results),
+        "created": sum(r.get("created", 0) for r in results),
         "budget_exhausted": bool(due) and (remaining == 0 or any(r["status"] == "budget_exhausted" for r in results)),
         "time_range": "day",
     }

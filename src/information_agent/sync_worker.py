@@ -6,6 +6,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from sqlalchemy import select
+
 from information_agent.db import SessionLocal
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
@@ -68,7 +70,12 @@ def _run_sources(names) -> dict:
 
 def run_once() -> dict:
     if not _ROUND_LOCK.acquire(blocking=False):
-        return {"status": "running", "message": "已有采集轮次正在执行"}
+        with SessionLocal() as db:
+            active = db.scalar(select(AgentRun).where(
+                AgentRun.kind == "scheduled_collection", AgentRun.status == "running",
+            ).order_by(AgentRun.started_at.desc()).limit(1))
+            return {"status": "running", "run_id": active.id if active else None,
+                    "message": "已有采集轮次正在执行"}
     try:
         with SessionLocal() as db:
             run = AgentRun(kind="scheduled_collection", status="running", detail="")

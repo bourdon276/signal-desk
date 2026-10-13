@@ -37,4 +37,14 @@
 
 .reader-content img{display:block;max-width:100%;height:auto;margin:20px auto;border-radius:4px}
 
+.discovery-preferences{border:1px solid #dce2d6;border-radius:6px;padding:16px 18px;margin:0 0 22px;background:#f7f8f2;font-size:13px}
+.discovery-preferences>summary{cursor:pointer;color:#385d43;font-weight:500}
+.discovery-preferences h2{font-size:15px;margin:0 0 14px}
+.discovery-profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px;margin-top:16px}
+.discovery-profile p{margin:8px 0;line-height:1.7;overflow-wrap:anywhere}
+.discovery-profile small,.discovery-profile details{color:#77836f;font-size:12px}
+.discovery-profile details{margin-top:10px}.discovery-profile details summary{cursor:pointer}
+.preference-signals{display:flex;gap:6px;flex-wrap:wrap}.preference-signals span{border:1px solid #d6dfcf;padding:2px 8px;border-radius:3px}
+.preference-explanation{border-top:1px solid #dce2d6;padding-top:12px;margin:16px 0 0;color:#77836f;font-size:12px;line-height:1.8}
+
 .batch-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 18px}.batch-toolbar button{font-size:12px}.batch-toolbar small,.batch-toolbar [role=status]{font-size:11px;color:#788473}.batch-check{display:flex;align-items:center;gap:6px;font-size:11px}.batch-check input{width:auto;margin:0}.daily-status{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #dce2d6;padding:0 0 16px;margin-bottom:22px;font-size:12px;color:#76846e}.daily-status strong{font-weight:500;color:#385d43}.daily-status small{flex-basis:100%;line-height:1.7}

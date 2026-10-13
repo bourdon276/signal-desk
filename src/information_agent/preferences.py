@@ -18,6 +18,7 @@ KIND_LABELS = {
     "other": "其他资讯",
     "macro": "宏观经济",
     "market": "指数与市场动态",
+    "gold_market": "黄金市场",
 }
 
 
@@ -31,6 +32,11 @@ def content_kind(item) -> str:
         return "interview"
     if item.watch_id.startswith("index:"):
         return "macro" if re.search(r"宏观|美联储|利率|通胀|PMI|经济数据|货币政策", item.title, re.I) else "market"
+    if item.watch_id == "gold:london":
+        return "macro" if item.source_name == "Federal Reserve Board" or re.search(
+            r"美联储|利率|通胀|央行|经济数据|货币政策|\b(?:fed|fomc|inflation|rates?|cpi|central banks?)\b",
+            text, re.I,
+        ) else "gold_market"
     if item.watch_id.startswith("stock:"):
         if re.search(r"年度报告|半年度报告|季度报告|财报|业绩|financial|earnings", text):
             return "financial"

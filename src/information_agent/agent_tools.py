@@ -57,7 +57,9 @@ class SearchItems(Tool):
                     "maxItems": 26,
                 },
                 "view": {"type": "string", "enum": ["news", "matches", "all"]},
-                "news_kind": {"type": "string", "enum": ["all", "interview", "roster", "financial"]},
+                "news_kind": {"type": "string", "enum": [
+                    "all", "interview", "roster", "financial", "macro", "market", "gold_market",
+                ]},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 5},
             },
             "required": ["limit"],
@@ -195,7 +197,8 @@ class SearchNews(Tool):
     @property
     def description(self):
         return (
-            "Discover public news for ONE subscribed stock or CS2 team, store metadata, return scoped IDs. "
+            "Discover public news for ONE subscribed stock, index, gold or CS2 team. "
+            "Store metadata, return scoped IDs. "
             "Only public entity names go to the search provider. No arbitrary queries or URLs."
         )
 
@@ -237,7 +240,8 @@ class SearchNews(Tool):
                 group_events=False,
                 view="news",
                 watch_id=watch_id,
-                news_kind=focus if focus in {"interview", "roster", "financial"} else "all",
+                news_kind=focus if focus in {"interview", "roster", "financial", "macro", "market", "gold_market"}
+                else "all",
             )
         candidates = [r for r in candidates if r["id"] in allowed_ids]
         rows = []

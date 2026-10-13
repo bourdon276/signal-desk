@@ -290,12 +290,42 @@ def require_admin(token: str | None) -> None:
         raise HTTPException(status_code=403, detail="无管理权限")
 
 
-@router.post("/admin/sync")
-def scheduled_sync(x_sync_token: str | None = Header(default=None)) -> dict:
+def require_sync_token(x_sync_token: str | None) -> None:
     expected = settings.sync_trigger_token.get_secret_value()
     if len(expected) < 32 or x_sync_token is None or not hmac.compare_digest(x_sync_token, expected):
         raise HTTPException(status_code=403, detail="无采集调度权限")
+
+
+@router.post("/admin/sync")
+def scheduled_sync(x_sync_token: str | None = Header(default=None)) -> dict:
+    require_sync_token(x_sync_token)
     return run_once()
+
+
+@router.get("/admin/sync/status")
+def scheduled_sync_status(
+    run_id: str | None = Query(default=None, min_length=36, max_length=36),
+    x_sync_token: str | None = Header(default=None), db: Session = Depends(get_db),
+) -> dict:
+    require_sync_token(x_sync_token)
+    query = select(AgentRun).where(AgentRun.kind == "scheduled_collection", AgentRun.user_id.is_(None))
+    if run_id is not None:
+        query = query.where(AgentRun.id == run_id)
+    run = db.scalar(query.order_by(AgentRun.started_at.desc()).limit(1))
+    if run is None:
+        if run_id is not None:
+            raise HTTPException(status_code=404, detail="未找到固定来源采集记录")
+        return {"status": "not_run", "run_id": None}
+    try:
+        sources = json.loads(run.detail or "{}")
+    except (TypeError, ValueError):
+        sources = {}
+    return {
+        "status": run.status, "run_id": run.id,
+        "started_at": run.started_at.isoformat(),
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "sources": sources,
+    }
 
 
 @router.get("/catalog")
@@ -303,7 +333,8 @@ def catalog(user: User = Depends(current_user), db: Session = Depends(get_db)) -
     owned = set(db.scalars(select(Watch.watch_id).where(Watch.user_id == user.id)))
     return {
         "watches": [{"id": key, "name": value} for key, value in WATCHES.items() if key in owned],
-        "automatic_source": {"gold:london": "美联储货币政策 RSS", "team:cs2": "PandaScore CS2 赛程与结果"},
+        "automatic_source": {"gold:london": "黄金媒体搜索与美联储货币政策 RSS",
+                             "team:cs2": "PandaScore CS2 赛程与结果"},
     }
 
 
@@ -371,6 +402,11 @@ def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Se
     elif not payload.enabled and existing is not None:
         db.delete(existing)
     db.commit()
+    if payload.enabled and existing is None and settings.sync_in_web:
+        if payload.watch_id == "gold:london":
+            request_sync("fed")
+        if search_configured():
+            request_sync("web_news")
     return {"watch_id": payload.watch_id, "enabled": payload.enabled}
 
 
@@ -378,7 +414,7 @@ def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Se
 def feed(
     view: Literal["news", "matches", "all"] = "news",
     watch_id: str | None = Query(default=None, max_length=64),
-    news_kind: Literal["all", "interview", "roster", "financial"] = "all",
+    news_kind: Literal["all", "interview", "roster", "financial", "macro", "market", "gold_market"] = "all",
     limit: int = Query(default=50, ge=1, le=100),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -423,9 +459,10 @@ def add_feedback(payload: FeedbackInput, user: User = Depends(current_user), db:
             .on_conflict_do_nothing(index_elements=["user_id", "item_id"])
         )
     db.commit()
-    if payload.reason == "content_type" and settings.sync_in_web and search_configured():
+    if payload.reason in {"content_type", "source"} and settings.sync_in_web and search_configured():
         request_sync("web_news")
-    return {"id": event.id, "action": event.action, "created_at": event.created_at.isoformat()}
+    return {"id": event.id, "action": event.action, "created_at": event.created_at.isoformat(),
+            "preferences": acquisition_profile(db, user.id)}
 
 
 @router.get("/feedback")
@@ -456,6 +493,8 @@ def undo_feedback(feedback_id: str, user: User = Depends(current_user), db: Sess
     if event.undone_at is None:
         event.undone_at = now_utc()
         db.commit()
+        if event.reason in {"content_type", "source"} and settings.sync_in_web and search_configured():
+            request_sync("web_news")
     return {"id": event.id, "undone": True}
 
 
@@ -463,7 +502,7 @@ def undo_feedback(feedback_id: str, user: User = Depends(current_user), db: Sess
 def desk(
     view: Literal["news", "matches", "all"] = "news",
     watch_id: str | None = Query(default=None, max_length=64),
-    news_kind: Literal["all", "interview", "roster", "financial"] = "all",
+    news_kind: Literal["all", "interview", "roster", "financial", "macro", "market", "gold_market"] = "all",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:

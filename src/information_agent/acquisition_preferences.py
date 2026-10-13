@@ -1,7 +1,11 @@
 """User-owned feedback steers bounded discovery, never grants a wider scope."""
 
+import json
+
 from sqlalchemy import select
 
+from information_agent.discovery_policy import discovery_plan, entity_kind, publisher_domain
+from information_agent.discovery_policy import preferred_focus as preferred_focus
 from information_agent.models import Feedback, Item
 from information_agent.personalization import matches, user_scope
 from information_agent.preferences import KIND_LABELS, content_kind
@@ -15,7 +19,11 @@ def acquisition_profile(db, user_id: str) -> dict:
     metadata = {item.id: item for item in db.scalars(select(Item).where(
         Item.id.in_({event.item_id for event in events}),
     ))}
-    result = {key: {"weights": {}, "feedback_count": 0} for key in enabled}
+    kinds = {key: entity_kind(key) for key in enabled}
+    for topic in topics:
+        kinds[topic.id] = next((kind for marker in json.loads(topic.keywords)
+                               if (kind := entity_kind(marker))), None)
+    result = {key: {"weights": {}, "source_weights": {}, "feedback_count": 0} for key in enabled}
     for event in reversed(events):
         item = metadata.get(event.item_id)
         if item is None or event.action not in {"interested", "not_interested"}:
@@ -23,6 +31,14 @@ def acquisition_profile(db, user_id: str) -> dict:
         for watch_id in matches(item, enabled, topics):
             entry = result[watch_id]
             entry["feedback_count"] += 1
+            if event.reason == "source":
+                domain = publisher_domain(item.canonical_url, kinds[watch_id])
+                if domain:
+                    weights = entry["source_weights"]
+                    weights[domain] = max(-3, min(3, weights.get(domain, 0) + (
+                        1 if event.action == "interested" else -1
+                    )))
+                continue
             if event.reason != "content_type":
                 continue
             kind = content_kind(item)
@@ -30,24 +46,10 @@ def acquisition_profile(db, user_id: str) -> dict:
             weights[kind] = max(-3, min(3, weights.get(kind, 0) + (
                 1 if event.action == "interested" else -1
             )))
-    for entry in result.values():
+    for watch_id, entry in result.items():
         entry["signals"] = [{"kind": kind, "label": KIND_LABELS[kind], "weight": weight}
                             for kind, weight in sorted(entry["weights"].items()) if weight]
+        entry["source_signals"] = [{"domain": domain, "weight": weight}
+                                   for domain, weight in sorted(entry["source_weights"].items()) if weight]
+        entry.update(discovery_plan(kinds[watch_id], entry))
     return result
-
-
-def preferred_focus(kind: str, profile: dict) -> str:
-    allowed = {
-        "team": ("interview", "roster"), "stock": ("financial",), "index": ("macro", "market"),
-    }.get(kind, ())
-    weights = profile.get("weights", {})
-    positive = [focus for focus in allowed if weights.get(focus, 0) > 0]
-    if positive:
-        return max(positive, key=lambda focus: weights[focus])
-    if kind in {"team", "index"} and any(weights.get(focus, 0) < 0 for focus in allowed):
-        alternatives = [focus for focus in allowed if weights.get(focus, 0) >= 0]
-        if alternatives:
-            return alternatives[0]
-    # Keep discovery broad when there is no explicit positive direction.
-    # Negative feedback downranks results; it must not remove the remaining supply.
-    return "recent"
