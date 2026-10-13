@@ -42,7 +42,7 @@ from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
 from information_agent.sync_worker import request_sync, run_once
-from information_agent.web_search import FOCUSES, STOCK_DOMAINS, normalize_result, targets
+from information_agent.web_search import FOCUSES, STOCK_DOMAINS, normalize_result, search_budget_state, targets
 
 router = APIRouter(prefix="/api")
 
@@ -522,9 +522,13 @@ def desk(
         except (ValueError, TypeError):
             pass
     search_detail = collection_detail.get("web_news", {})
+    search_budget = search_budget_state(db, user.id) if search_configured() else {}
     return {
         "collection": {
-            "search_budget_exhausted": bool(search_detail.get("budget_exhausted")),
+            "search_budget_exhausted": bool(search_budget.get("budget_exhausted")),
+            "search_limit_reason": search_budget.get("limit_reason"),
+            "search_automatic_paused": bool(search_budget.get("automatic_paused")),
+            "search_manual_remaining": search_budget.get("manual_remaining", 0),
             "search_deferred": search_detail.get("deferred_targets", 0),
             "status": last_collection.status if last_collection else "not_run",
             "started_at": last_collection.started_at.isoformat() if last_collection else None,

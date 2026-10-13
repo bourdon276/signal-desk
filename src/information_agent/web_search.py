@@ -34,6 +34,7 @@ from information_agent.news_quality import news_exclusion
 from information_agent.personalization import user_scope
 from information_agent.preferences import content_kind
 from information_agent.search_provider import configured, provider
+from information_agent.search_schedule import automatic_due_at, fair_order
 
 KIND = "web_news_search_sync"
 FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market", "gold_market"}
@@ -270,6 +271,8 @@ def claim(key: str, user_id: str | None):
         ]
         if user_id:
             scopes.append(("user:" + user_id + ":" + today.strftime("%Y-%m-%d"), settings.search_user_day_limit))
+        else:
+            scopes.append(("auto_day:" + today.strftime("%Y-%m-%d"), automatic_day_cap()))
         for scope, cap in scopes:
             db.execute(
                 insert(SearchBudget).values(scope=scope, credits=0).on_conflict_do_nothing(index_elements=["scope"])
@@ -284,6 +287,33 @@ def claim(key: str, user_id: str | None):
                 return {"status": "budget_exhausted", "results": [], "search_credits": 0}, None
         db.commit()
     return None, token
+
+
+def automatic_day_cap() -> int:
+    return max(0, settings.search_day_credit_limit - settings.search_manual_reserved_credits)
+
+
+def search_budget_state(db, user_id: str | None = None) -> dict:
+    today = now_utc().astimezone(ZoneInfo("Asia/Shanghai"))
+    day = today.strftime("%Y-%m-%d")
+
+    def left(scope, cap):
+        row = db.get(SearchBudget, scope)
+        return max(0, cap - (row.credits if row else 0))
+
+    daily = left("day:" + day, settings.search_day_credit_limit)
+    monthly = left("month:" + today.strftime("%Y-%m"), settings.search_month_credit_limit)
+    automatic = min(daily, monthly, left("auto_day:" + day, automatic_day_cap()))
+    manual = min(daily, monthly)
+    if user_id:
+        manual = min(manual, left("user:" + user_id + ":" + day, settings.search_user_day_limit))
+    return {
+        "budget_exhausted": daily == 0 or monthly == 0,
+        "limit_reason": "month" if monthly == 0 else "day" if daily == 0 else None,
+        "automatic_remaining": automatic,
+        "automatic_paused": automatic == 0 and daily > 0 and monthly > 0,
+        "manual_remaining": manual,
+    }
 
 
 def search_cache_key(target: dict, focus: str) -> str:
@@ -399,6 +429,7 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
     finally:
         with SessionLocal() as db:
             now = now_utc()
+            result["completed_at"] = now.isoformat()
             db.execute(
                 update(SearchCache)
                 .where(SearchCache.key == key, SearchCache.lease_token == token)
@@ -435,28 +466,36 @@ def sync() -> dict:
                     value = {**value, "search_domains": plan["search_domains"]}
                     key = search_cache_key({**value, "time_range": "day"}, focus)
                     unique[key] = (value, focus)
-        today = now_utc().astimezone(ZoneInfo("Asia/Shanghai"))
-        used = db.get(SearchBudget, "day:" + today.strftime("%Y-%m-%d"))
-        # Preserve the global daily credit cap across automated and manual discovery.
-        remaining = max(0, settings.search_day_credit_limit - (used.credits if used else 0))
+        budget = search_budget_state(db)
+        remaining = budget["automatic_remaining"]
     with SessionLocal() as db:
         cache_by_key = {row.key: row for row in db.scalars(select(SearchCache))}
     now = now_utc()
     # Never spend the limited first ten slots on still-fresh cache hits. Oldest
     # searches come first so subscriptions after position ten can make progress.
-    due = []
+    due, cadence_deferred = [], 0
     for value, focus in unique.values():
         value = {**value, "time_range": "day"}
         cache = cache_by_key.get(search_cache_key(value, focus))
         if cache and (_aware(cache.expires_at) > now or _aware(cache.lease_until) > now):
             continue
+        try:
+            payload = json.loads(cache.payload) if cache else {}
+        except (ValueError, TypeError):
+            payload = {}
+        next_due = automatic_due_at(payload if isinstance(payload, dict) else {}, settings.search_auto_interval_hours)
+        if next_due and next_due > now:
+            cadence_deferred += 1
+            continue
         due.append((value, focus, _aware(cache.expires_at) if cache else datetime.min.replace(tzinfo=UTC)))
-    ordered = sorted(due, key=lambda row: (row[2], row[0]["watch_id"], row[1]))
+    ordered = fair_order(due)
     results = []
     for target, focus, _ in ordered[: min(remaining, 10)]:
         results.append(asyncio.run(discover(target, focus)))
         if results[-1]["status"] == "budget_exhausted":
             break
+    with SessionLocal() as db:
+        budget = search_budget_state(db)
     return {
         "status": "partial" if any(r["status"] == "failure" for r in results) else "completed",
         "targets": len(results), "due_targets": len(due),
@@ -468,7 +507,12 @@ def sync() -> dict:
         "entries": sum(r.get("entries", 0) for r in results),
         "matched": sum(r.get("matched", 0) for r in results),
         "created": sum(r.get("created", 0) for r in results),
-        "budget_exhausted": bool(due) and (remaining == 0 or any(r["status"] == "budget_exhausted" for r in results)),
+        "budget_exhausted": budget["budget_exhausted"],
+        "automatic_paused": budget["automatic_paused"],
+        "automatic_remaining": budget["automatic_remaining"],
+        "manual_remaining": budget["manual_remaining"],
+        "cadence_deferred": cadence_deferred,
+        "automatic_interval_hours": settings.search_auto_interval_hours,
         "time_range": "day",
     }
 

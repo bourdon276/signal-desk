@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     search_month_credit_limit: int = Field(default=600, ge=1, le=1000)
     search_user_day_limit: int = Field(default=5, ge=1, le=20)
     search_cache_hours: int = Field(default=6, ge=1, le=24)
+    search_auto_interval_hours: int = Field(default=12, ge=6, le=24)
+    search_manual_reserved_credits: int = Field(default=5, ge=0, le=20)
 
     model_enabled: bool = False
     model_api_key: SecretStr = SecretStr("")
