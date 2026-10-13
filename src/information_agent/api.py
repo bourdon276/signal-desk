@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from information_agent import model_agent, translation
 from information_agent.acquisition_preferences import acquisition_profile
 from information_agent.agent_tools import SearchNews, news_age_label, scoped_registry
-from information_agent.article_reader import article_excerpt, read_full_article
+from information_agent.article_reader import article_excerpt, clean_cached_body, read_full_article
 from information_agent.config import settings
 from information_agent.db import get_db
 from information_agent.domain import INDEX_NAMES, STOCK_NAMES, WATCHES, resolve_watch_ids, valid_watch
@@ -241,7 +241,8 @@ def article_content(item_id: str, user: User = Depends(current_user), db: Sessio
         raise HTTPException(status_code=404, detail="未找到关注范围内的资讯")
     cache_prefix = "reader:v2\n"
     if item.article_body and item.article_body.startswith(cache_prefix):
-        return {"body": item.article_body[len(cache_prefix):], "cache_hit": True, "summary": item.summary}
+        return {"body": clean_cached_body(item.article_body[len(cache_prefix):]),
+                "cache_hit": True, "summary": item.summary}
     try:
         with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
             result = read_full_article(client, item.canonical_url)

@@ -27,6 +27,23 @@ SELECTORS = {
 }
 
 
+def is_scoreboard_icon(url: str) -> bool:
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    return (
+        (host == "hltv.org" or host.endswith(".hltv.org") or host == "www.dust2.com.br")
+        and parts.path.startswith(("/teamlogo/", "/img/static/flags/", "/dust2/img/static/scoreboard/"))
+    )
+
+
+def clean_cached_body(body: str) -> str:
+    # Repair existing caches without fetching the article again.
+    return re.sub(
+        r"\[\[阅讯图片\|([^\]]+)\]\]",
+        lambda match: "" if is_scoreboard_icon(match[1]) else match[0], body,
+    )
+
+
 def clean_excerpt(text: str, title: str = "", watch_id: str = "", limit: int | None = 500) -> str:
     text = re.sub(r"^搜索摘录[（(][^）)]*[）)]\s*[：:]?\s*", "", text or "")
     text = re.sub(r"\$([^$]{1,80})\$", r"\1", text)
@@ -60,6 +77,9 @@ def extract_html(html: str, selector: str, source_url: str = "") -> tuple[str, l
     for image in root.find_all("img"):
         raw_url = image.get("data-src") or image.get("src") or ""
         image_url = urljoin(source_url, raw_url)
+        if is_scoreboard_icon(image_url):
+            image.decompose()
+            continue
         parts = urlsplit(image_url)
         host = parts.hostname or ""
         approved_image = parts.scheme == "https" and not parts.username and not parts.password and any(
