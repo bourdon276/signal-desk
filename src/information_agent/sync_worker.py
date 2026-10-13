@@ -11,6 +11,7 @@ from sqlalchemy import select
 from information_agent.db import SessionLocal
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
+from information_agent.ingest_gold import sync as sync_gold_articles
 from information_agent.ingest_pandascore import sync as sync_pandascore
 from information_agent.ingest_perfect_news import sync as sync_perfect_news
 from information_agent.ingest_team_news import sync as sync_team_news
@@ -52,6 +53,11 @@ def _run_source(name: str) -> dict:
         return {"status": "running"}
     try:
         result = SYNCERS[name]()
+        if name == "web_news":
+            # Enrich the new gold results after discovery, rather than racing it.
+            result["gold_articles"] = sync_gold_articles()
+            if result["gold_articles"]["status"] == "partial":
+                result["status"] = "partial"
         logging.info("%s synced: %s", name, result)
         return result
     except Exception as exc:

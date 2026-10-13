@@ -22,12 +22,23 @@ SELECTORS = {
     "www.federalreserve.gov": "#article",
     "news.wmpvp.com": "article",
     "static.cninfo.com.cn": "pdf",
+    "www.kitco.com": "#articleBody",
+    "kitco.com": "#articleBody",
 }
 
 
 def clean_excerpt(text: str, title: str = "", watch_id: str = "") -> str:
     text = re.sub(r"^搜索摘录[（(][^）)]*[）)]\s*[：:]?\s*", "", text or "")
     text = re.sub(r"\$([^$]{1,80})\$", r"\1", text)
+    text = re.sub(r"Kitco NEWS has a diverse team of journalists.*?accuracy and objectivity\.?", "", text, flags=re.I)
+    # Publisher biographies and editorial workflow statements are not news facts.
+    text = re.sub(r"Articles by.*?Kitco.*?were generated.*", "", text, flags=re.I)
+    text = re.sub(r"^[#*\s]+", "", text)
+    headline = re.sub(r"\s*[-–]\s*Kitco$", "", title)
+    if headline and text.startswith(headline):
+        text = text[len(headline):].lstrip(". :–-\n")
+    if re.search(r"^\d*\s*#\d+|User been here for more than|Faceit level \d+", text, re.I):
+        return ""  # A forum/user profile fragment is not an article excerpt.
     # Discard site navigation instead of displaying it as an article summary.
     if "财经 焦点 股票" in text or "指数期指期权个股板块排行" in text:
         return ""  # The reader will extract the actual article, not this navigation fragment.
@@ -52,6 +63,7 @@ def extract_html(html: str, selector: str, source_url: str = "") -> tuple[str, l
             host == domain or host.endswith("." + domain) for domain in (
                 "dfcfw.com", "eastmoney.com", "wmpvp.com", "hltv.org", "dust2.com.br", "stcn.com",
                 "federalreserve.gov", "wanmei.com", "pwesports.cn", "alicdn.com",
+                "kitco.com",
             )
         )
         marker = "\n\n[[阅讯图片|" + image_url + "]]\n\n" if approved_image else "【图片请在来源查看】"
@@ -96,6 +108,7 @@ def read_full_article(client, url: str) -> dict:
     if approved is None:
         raise ValueError("unsupported_source")
     host = urlsplit(approved).hostname
+    metadata = {}
     if host == "news.wmpvp.com":
         news_id = share_news_id(approved)
         payload = json.loads(download(client, DETAIL_URL, params={"gameType": 2, "newsId": news_id}))
@@ -116,12 +129,28 @@ def read_full_article(client, url: str) -> dict:
         body = "\n\n".join(blocks)
         if len(body) < 60 or len(body) > 200_000:
             raise ValueError("article_body_quality")
+    elif host in {"www.kitco.com", "kitco.com"}:
+        if not re.fullmatch(r"/news/(?:article/)?\d{4}-\d{2}-\d{2}/[^/]+", urlsplit(approved).path):
+            raise ValueError("unsupported_source")
+        raw = download(client, approved)
+        soup = BeautifulSoup(raw, "html.parser")
+        script = soup.find("script", id="__NEXT_DATA__")
+        if script is None:
+            raise ValueError("article_body_missing")
+        article = json.loads(script.string or "{}").get("props", {}).get("pageProps", {}).get("articleData", {})
+        if article.get("urlAlias") != urlsplit(approved).path or article.get("published") is not True:
+            raise ValueError("article_identity")
+        content = article.get("bodyWithEmbeddedMedia", {}).get("value")
+        if not isinstance(content, str):
+            raise ValueError("article_body_missing")
+        body, blocks = extract_html(f'<article>{content}</article>', "article", approved)
+        metadata = {"title": article.get("title"), "published_date": article.get("createdAt")}
     else:
         raw = download(client, approved)
         # Eastmoney currently serves UTF-8; explicit legacy encoding only when declared.
         encoding = "gb18030" if re.search(br'charset\s*=\s*["\']?gb(?:2312|k)', raw[:8000], re.I) else "utf-8"
         body, blocks = extract_html(raw.decode(encoding), SELECTORS[host], approved)
-    return {"body": body, "blocks": blocks}
+    return {"body": body, "blocks": blocks, **metadata}
 
 
 def article_excerpt(blocks: list[str], watch_id: str = "") -> str:
