@@ -43,6 +43,8 @@ class Item(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     article_body: Mapped[str | None] = mapped_column(Text)
     body_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    article_retry_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    article_last_error: Mapped[str | None] = mapped_column(String(50))
     source_name: Mapped[str] = mapped_column(String(120), nullable=False)
     source_type: Mapped[str] = mapped_column(String(30), nullable=False)
     ingestion_mode: Mapped[str] = mapped_column(String(30), nullable=False)

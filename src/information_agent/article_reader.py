@@ -27,7 +27,7 @@ SELECTORS = {
 }
 
 
-def clean_excerpt(text: str, title: str = "", watch_id: str = "") -> str:
+def clean_excerpt(text: str, title: str = "", watch_id: str = "", limit: int | None = 500) -> str:
     text = re.sub(r"^搜索摘录[（(][^）)]*[）)]\s*[：:]?\s*", "", text or "")
     text = re.sub(r"\$([^$]{1,80})\$", r"\1", text)
     text = re.sub(r"Kitco NEWS has a diverse team of journalists.*?accuracy and objectivity\.?", "", text, flags=re.I)
@@ -44,7 +44,7 @@ def clean_excerpt(text: str, title: str = "", watch_id: str = "") -> str:
         return ""  # The reader will extract the actual article, not this navigation fragment.
     if text.count("|") >= 4:
         return ""  # An incomplete table fragment is not a readable summary.
-    return " ".join(text.split())[:500]
+    return " ".join(text.split())[:limit]
 
 
 def extract_html(html: str, selector: str, source_url: str = "") -> tuple[str, list[str]]:
@@ -52,7 +52,10 @@ def extract_html(html: str, selector: str, source_url: str = "") -> tuple[str, l
     root = soup.select_one(selector)
     if root is None:
         raise ValueError("article_body_missing")
-    for node in root.select("script, style, nav, iframe, form, button, .advertisement, .ad, .share, .article-footer"):
+    for node in root.select(
+        "script, style, nav, iframe, form, button, .advertisement, .ad, .share, .article-footer, "
+        ".comments, #comments, .comment-section, .related-articles, .author-bio"
+    ):
         node.decompose()
     for image in root.find_all("img"):
         raw_url = image.get("data-src") or image.get("src") or ""
@@ -153,12 +156,29 @@ def read_full_article(client, url: str) -> dict:
     return {"body": body, "blocks": blocks, **metadata}
 
 
+def excerpt_boundary(text: str, limit: int) -> str:
+    """Prefer complete sentences; visibly indicate an unavoidable truncation."""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    head = text[:limit - 1]
+    ends = list(re.finditer(r"[。！？]|[.!?](?=\s|$)", head))
+    if ends and ends[-1].end() >= limit // 2:
+        return head[:ends[-1].end()]
+    # Don't cut an English word or decimal in half.
+    if re.search(r"[A-Za-z0-9]$", head) and re.match(r"[A-Za-z0-9]", text[len(head):]):
+        head = re.sub(r"[A-Za-z0-9.,%-]+$", "", head)
+    return head.rstrip() + "…"
+
+
 def article_excerpt(blocks: list[str], watch_id: str = "") -> str:
     blocks = [re.sub(r"\[\[阅讯图片\|[^\]]+\]\]", "", block).strip() for block in blocks]
-    paragraphs = [block for block in blocks if len(block) > 25]
+    paragraphs = ["\n".join(clean_excerpt(line, limit=None) for line in block.splitlines())
+                  for block in blocks if len(block) > 25]
+    paragraphs = [block for block in paragraphs if len(block) > 25]
     intro = paragraphs[0] if paragraphs else ""
     marker = watch_id.rsplit(":", 1)[-1]
     relevant = next((block for block in paragraphs[1:] if marker.isdigit() and marker in block), "")
     if relevant:
         relevant = next((line for line in relevant.splitlines() if marker in line), relevant)
-    return (intro[:300] + ("\n" + relevant[:180] if relevant else ""))[:500]
+    return excerpt_boundary(intro, 300) + ("\n" + excerpt_boundary(relevant, 180) if relevant else "")

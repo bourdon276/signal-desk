@@ -254,7 +254,11 @@ def article_content(item_id: str, user: User = Depends(current_user), db: Sessio
         raise HTTPException(status_code=502, detail="来源页面暂时无法读取，请稍后重试或打开原文。") from None
     item.article_body = cache_prefix + result["body"]
     item.body_fetched_at = now_utc()
-    item.summary = article_excerpt(result["blocks"], item.watch_id)
+    item.article_retry_after = None
+    item.article_last_error = None
+    excerpt = article_excerpt(result["blocks"], item.watch_id)
+    if excerpt:
+        item.summary = excerpt
     db.commit()
     return {"body": result["body"], "cache_hit": False, "summary": item.summary}
 

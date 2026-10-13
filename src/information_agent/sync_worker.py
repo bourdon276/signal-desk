@@ -9,9 +9,9 @@ from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import select
 
 from information_agent.db import SessionLocal
+from information_agent.ingest_articles import sync as sync_articles
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
-from information_agent.ingest_gold import sync as sync_gold_articles
 from information_agent.ingest_pandascore import sync as sync_pandascore
 from information_agent.ingest_perfect_news import sync as sync_perfect_news
 from information_agent.ingest_team_news import sync as sync_team_news
@@ -32,6 +32,7 @@ SYNCERS = {
 }
 _SOURCE_LOCKS = {name: threading.Lock() for name in SYNCERS}
 _ROUND_LOCK = threading.Lock()
+_ARTICLE_LOCK = threading.Lock()
 _REQUESTED: set[str] = set()
 _REQUEST_LOCK = threading.Lock()
 _REQUEST_WAKE = threading.Event()
@@ -53,11 +54,6 @@ def _run_source(name: str) -> dict:
         return {"status": "running"}
     try:
         result = SYNCERS[name]()
-        if name == "web_news":
-            # Enrich the new gold results after discovery, rather than racing it.
-            result["gold_articles"] = sync_gold_articles()
-            if result["gold_articles"]["status"] == "partial":
-                result["status"] = "partial"
         logging.info("%s synced: %s", name, result)
         return result
     except Exception as exc:
@@ -71,7 +67,19 @@ def _run_sources(names) -> dict:
     names = tuple(names)
     # Only two concurrent sources on the small web instance; each owns its DB session.
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="collect") as pool:
-        return dict(zip(names, pool.map(_run_source, names), strict=True))
+        results = dict(zip(names, pool.map(_run_source, names), strict=True))
+    # Wait for search and RSS inserts before preparing article bodies. Runs even
+    # when search is disabled or out of credits; only known article URLs are read.
+    if _ARTICLE_LOCK.acquire(blocking=False):
+        try:
+            results["article_bodies"] = sync_articles()
+        except Exception as exc:
+            results["article_bodies"] = {"status": "failure", "error_type": type(exc).__name__}
+        finally:
+            _ARTICLE_LOCK.release()
+    else:
+        results["article_bodies"] = {"status": "running"}
+    return results
 
 
 def run_once() -> dict:
