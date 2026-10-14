@@ -352,7 +352,8 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
         db.commit()
         run_id = run.id
     result = {"status": "failure", "results": [], "search_credits": 1, "cache_hit": False,
-              "effective_focus": focus, "time_range": target.get("time_range", "month"), "search_domains": domains}
+              "effective_focus": focus, "time_range": target.get("time_range", "month"), "search_domains": domains,
+              "category": target["kind"]}
     try:
         # Sports news uses the provider's article-oriented index; stock PDFs retain general search.
         topic = "news" if target["kind"] in {"team", "gold"} else "general"
@@ -489,9 +490,24 @@ def sync() -> dict:
             continue
         due.append((value, focus, _aware(cache.expires_at) if cache else datetime.min.replace(tzinfo=UTC)))
     ordered = fair_order(due)
-    results = []
+    results, category_results, dropped = [], {}, {}
     for target, focus, _ in ordered[: min(remaining, 10)]:
         results.append(asyncio.run(discover(target, focus)))
+        result = results[-1]
+        # Aggregate by public category, never expose individual subscriptions,
+        # custom labels, questions or feedback in scheduler status.
+        metrics = category_results.setdefault(target["kind"], {
+            "attempts": 0, "successes": 0, "failures": 0,
+            "entries": 0, "matched": 0, "created": 0, "search_credits": 0, "dropped": {},
+        })
+        metrics["attempts"] += 1
+        metrics["successes"] += int(result["status"] == "success")
+        metrics["failures"] += int(result["status"] == "failure")
+        for field in ("entries", "matched", "created", "search_credits"):
+            metrics[field] += result.get(field, 0)
+        for reason, count in result.get("dropped", {}).items():
+            metrics["dropped"][reason] = metrics["dropped"].get(reason, 0) + count
+            dropped[reason] = dropped.get(reason, 0) + count
         if results[-1]["status"] == "budget_exhausted":
             break
     with SessionLocal() as db:
@@ -513,6 +529,8 @@ def sync() -> dict:
         "manual_remaining": budget["manual_remaining"],
         "cadence_deferred": cadence_deferred,
         "automatic_interval_hours": settings.search_auto_interval_hours,
+        "category_results": category_results,
+        "dropped": dropped,
         "time_range": "day",
     }
 

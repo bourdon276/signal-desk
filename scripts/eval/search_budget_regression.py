@@ -52,6 +52,8 @@ def evaluate():
     ) as clock:
         first = web_search.sync()
         assert first["search_credits"] == 3 and adapter.calls == 3
+        assert first["category_results"]["gold"]["attempts"] == 1
+        assert first["category_results"]["stock"]["attempts"] == 2
         assert first["automatic_paused"] and not first["budget_exhausted"]
         clock.return_value = moment + timedelta(hours=1)
         repeat = web_search.sync()

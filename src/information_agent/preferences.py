@@ -2,6 +2,7 @@
 
 import re
 
+from information_agent.discovery_policy import entity_kind, publisher_domain
 from information_agent.news_quality import is_prediction
 
 REASONS = {"content_type", "source", "hide_only"}
@@ -64,5 +65,8 @@ def preference_key(item, reason):
         # No broad learning from an unclassified article.
         return ("kind", kind) if kind != "other" else None
     if reason == "source":
-        return ("source", item.source_name)
+        # Search and RSS labels can differ for the same publisher. Learn the
+        # fixed publisher identity used by discovery, rather than a display label.
+        domain = publisher_domain(item.canonical_url, entity_kind(item.watch_id))
+        return ("source", domain or item.source_name)
     return None

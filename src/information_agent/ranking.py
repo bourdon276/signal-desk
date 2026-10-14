@@ -144,8 +144,9 @@ def ranked_items(
         matched = matches(item, watch_ids, topics)
         weight = sum(watch_weight[target] for target in matched) / len(matched)
         kind = content_kind(item)
+        source_facet = preference_key(item, "source")
         facet = sum(
-            facet_weight.get((target, "kind", kind), 0) + facet_weight.get((target, "source", item.source_name), 0)
+            facet_weight.get((target, "kind", kind), 0) + facet_weight.get((target, *source_facet), 0)
             for target in matched
         ) / len(matched)
         facet = max(-3, min(3, facet))

@@ -166,6 +166,10 @@ uv run uvicorn information_agent.main:app --reload
 
 ## 观测与调试
 
+管理员调度诊断 `GET /api/admin/sync/search-summary` 使用独立 `X-Sync-Token`，按北京时间当天汇总自动搜索的候选、匹配、新增、过滤原因与分类数量；排除个人手动搜索/问答记录，不返回文章正文、关注名称或反馈。匹配数是逐请求累加，不能作为独立文章数或真实召回率。旧记录没有分类时记为unknown，不猜测补齐。
+
+反馈与记忆的20项合成作用域回归见[10月14日记录](docs/eval/memory-scope-results-20261014.md)，脚本 `scripts/eval/memory_scope_regression.py` 使用临时数据库验证隔离、同源权重、自动已读与撤销。此结果不能代替真实兴趣评估。
+
 `/api/sources` 提供公开的来源汇总；`/api/coverage`、`/api/feed` 按登录用户返回覆盖及列表诊断。列表统计分别解释候选、类型/质量过滤、反馈隐藏、最终展示数量。隐藏反馈可在页面撤销。
 
 问答运行记录包含 run_id、工具参数、耗时、结果数、回退原因与估算费用。管理员通过 `GET /api/admin/runs` 和 `X-Admin-Token` 查看同步及问答记录；轨迹不记录原始问题、密码或完整反馈历史。用户可通过顶部“运行记录”查看最近50条自己的操作及详情，并导出JSON；缓存命中不一定生成新运行记录，列表不是完整账单。

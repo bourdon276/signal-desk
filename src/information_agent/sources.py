@@ -43,7 +43,7 @@ SOURCE_SPECS = [
         "automatic": search_configured(),
         "description": "搜索关注的股票、指数、伦敦金与CS2战队；自动采集最近24小时，主动补搜近30天。"
         "兴趣反馈可增加类型方向、避开不喜欢的网站；使用固定来源名单与共享缓存。"
-        "结果为搜索摘录，全文与发布日期未独立核验；请求成功不代表覆盖完整。",
+        "部分固定来源会补读正文并缓存；搜索估计日期仍待核验，请求成功不代表覆盖完整。",
     },
     {
         "id": "cs2_team_news",
@@ -122,7 +122,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
         stamp = stamp.replace(tzinfo=UTC)
     stale_hours = 8 if kind and kind.startswith(PREFIX) else 2
     if kind == "web_news_search_sync":
-        stale_hours = settings.search_cache_hours + 2
+        stale_hours = max(settings.search_cache_hours, settings.search_auto_interval_hours) + 2
     if automatic and stamp and now_utc() - stamp > timedelta(hours=stale_hours):
         status = "stale"
     result = {

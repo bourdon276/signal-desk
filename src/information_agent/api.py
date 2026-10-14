@@ -41,6 +41,7 @@ from information_agent.ranking import ranked_items
 from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
+from information_agent.supply_audit import daily_search_summary
 from information_agent.sync_worker import request_sync, run_once
 from information_agent.web_search import FOCUSES, STOCK_DOMAINS, normalize_result, search_budget_state, targets
 
@@ -331,6 +332,14 @@ def scheduled_sync_status(
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "sources": sources,
     }
+
+
+@router.get("/admin/sync/search-summary")
+def scheduled_search_summary(
+    x_sync_token: str | None = Header(default=None), db: Session = Depends(get_db),
+) -> dict:
+    require_sync_token(x_sync_token)
+    return daily_search_summary(db)
 
 
 @router.get("/catalog")
