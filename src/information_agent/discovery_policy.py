@@ -6,7 +6,7 @@ TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com
                 "dust2.com.br", "news.wmpvp.com", "5eplay.com"]
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
 GOLD_DOMAINS = ["eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn", "kitco.com", "fxstreet.com",
-                "bls.gov", "federalreserve.gov"]
+                "bls.gov", "federalreserve.gov", "jin10.com"]
 DOMAINS = {"team": TEAM_DOMAINS, "stock": STOCK_DOMAINS, "index": STOCK_DOMAINS, "gold": GOLD_DOMAINS}
 FOCUS_BY_KIND = {
     "team": ("interview", "roster"), "stock": ("financial",),

@@ -1,10 +1,12 @@
 """Fixed Jin10 MCP endpoint; bounded responses and private connection diagnostics."""
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
 import httpx
+from jsonschema import validate
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -46,7 +48,7 @@ class BoundedTransport(httpx.AsyncHTTPTransport):
 
 def client_factory(headers=None, timeout=None, auth=None):
     return httpx.AsyncClient(headers=headers, timeout=timeout or httpx.Timeout(12), auth=auth,
-                             follow_redirects=False, trust_env=False, transport=BoundedTransport())
+                             follow_redirects=False, trust_env=False, transport=BoundedTransport(trust_env=False))
 
 
 @asynccontextmanager
@@ -67,6 +69,24 @@ async def tool_catalog(active) -> dict:
     return {tool.name: tool.inputSchema for tool in result.tools[:100] if tool.name in TOOLS}
 
 
+async def call_data(active, catalog: dict, name: str, arguments: dict) -> dict:
+    if name not in TOOLS or name not in catalog:
+        raise ValueError("jin10_tool_unavailable")
+    validate(arguments, catalog[name])
+    result = await active.call_tool(name, arguments)
+    if result.isError:
+        raise ValueError("jin10_tool_error")
+    payload = result.structuredContent
+    if payload is None:
+        blocks = [block.text for block in result.content if block.type == "text"]
+        if len(blocks) != 1:
+            raise ValueError("jin10_result_format")
+        payload = json.loads(blocks[0])
+    if not isinstance(payload, dict) or payload.get("status") != 200 or not isinstance(payload.get("data"), dict):
+        raise ValueError("jin10_result_format")
+    return payload["data"]
+
+
 def error_code(exc) -> str:
     # Do not return remote error messages, response bodies, headers or token values.
     if isinstance(exc, BaseExceptionGroup):
@@ -76,6 +96,8 @@ def error_code(exc) -> str:
         return f"http_{exc.response.status_code}"
     if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
         return "timeout"
+    if isinstance(exc, ValueError) and str(exc).startswith("jin10_") and len(str(exc)) < 50:
+        return str(exc)
     return type(exc).__name__[:50]
 
 

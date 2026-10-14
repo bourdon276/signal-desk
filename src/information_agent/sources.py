@@ -9,14 +9,22 @@ from sqlalchemy import select
 from information_agent.config import settings
 from information_agent.freshness import MATCH_SOURCE, recent_filter
 from information_agent.ingest_cninfo import PREFIX, configured
+from information_agent.ingest_jin10 import KIND as JIN10_KIND
 from information_agent.ingest_pandascore import KIND as PANDASCORE_KIND
 from information_agent.ingest_pandascore import configured as pandascore_configured
+from information_agent.jin10_client import configured as jin10_configured
 from information_agent.models import AgentRun, Item, now_utc
 from information_agent.news_quality import news_exclusion
 from information_agent.personalization import candidate_filter, matches, user_scope
 from information_agent.search_provider import configured as search_configured
 
 SOURCE_SPECS = [
+    {
+        "id": "gold_jin10", "kind": JIN10_KIND, "watch_id": "gold:london",
+        "label": "金十数据 · 黄金与美国宏观", "automatic": jin10_configured(),
+        "description": "通过金十MCP搜索黄金、美国经济数据与美联储消息，保留近30天相关快讯及资讯。"
+        "默认6小时更新，数据工具每天最多24次；快讯完整内容在站内读，资讯列表摘录不作为全文。",
+    },
     {
         "id": "dust2_br_news",
         "kind": "dust2_br_news_sync",
@@ -123,6 +131,8 @@ def state(db, kind: str | None, automatic: bool) -> dict:
     stale_hours = 8 if kind and kind.startswith(PREFIX) else 2
     if kind == "web_news_search_sync":
         stale_hours = max(settings.search_cache_hours, settings.search_auto_interval_hours) + 2
+    if kind == JIN10_KIND:
+        stale_hours = settings.jin10_interval_hours + 2
     if automatic and stamp and now_utc() - stamp > timedelta(hours=stale_hours):
         status = "stale"
     result = {
@@ -137,6 +147,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
         "web_news_search_sync",
         "perfect_world_news_sync",
         "dust2_br_news_sync",
+        JIN10_KIND,
     }:
         metrics = None
         if latest and latest.status in {"success", "partial"}:
@@ -157,6 +168,7 @@ def state(db, kind: str | None, automatic: bool) -> dict:
                     "skipped",
                     "full_pages",
                     "search_credits",
+                    "tool_calls",
                 )
                 metrics = {field: detail[field] for field in fields if isinstance(detail.get(field), int)}
                 dropped = detail.get("dropped")
@@ -209,10 +221,12 @@ def coverage(db, user_id):
                 else "已保存股票代码；自动公告需配置数据服务账号与展示许可。"
             )
         elif watch_id == "gold:london":
-            spec = next(s for s in SOURCE_SPECS if s["watch_id"] == watch_id)
+            spec = next(s for s in SOURCE_SPECS if s["watch_id"] == watch_id and s["automatic"])
             auto, source, note = True, state(db, spec["kind"], True), spec["description"]
             note = "采集现货黄金报道，以及美国CPI/PPI/PCE、就业、美联储政策、美元与美债等宏观资讯；"
             note += "美国数据无需在标题中出现黄金，也可收录。美联储政策RSS持续更新。"
+            if jin10_configured():
+                note += "金十快讯与资讯已接入定时采集，状态见来源更新。"
             note += "英文标题与摘录可译成中文；不提供实时金价。" if search_configured() else "媒体搜索等待配置。"
         elif watch_id == "esports:cs2":
             auto = pandascore_configured()

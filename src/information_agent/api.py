@@ -31,6 +31,8 @@ from information_agent.entities import canonical_team_name, is_team_watch_id, te
 from information_agent.ingest_common import store_item
 from information_agent.ingest_eastmoney import article_url as eastmoney_url
 from information_agent.ingest_eastmoney import read_article as read_eastmoney
+from information_agent.ingest_jin10 import read_news as read_jin10_news
+from information_agent.ingest_jin10 import sync as sync_jin10
 from information_agent.ingest_perfect_news import read_article, reserve_import, share_news_id
 from information_agent.ingest_team_news import mentions_team
 from information_agent.jin10_client import probe as probe_jin10
@@ -246,9 +248,16 @@ def article_content(item_id: str, user: User = Depends(current_user), db: Sessio
         return {"body": clean_cached_body(item.article_body[len(cache_prefix):]),
                 "cache_hit": True, "summary": item.summary}
     try:
-        with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
-            result = read_full_article(client, item.canonical_url)
+        if urlsplit(item.canonical_url).hostname == "xnews.jin10.com":
+            result = read_jin10_news(item.canonical_url)
+        else:
+            with httpx.Client(timeout=12, follow_redirects=False, trust_env=False) as client:
+                result = read_full_article(client, item.canonical_url)
     except ValueError as exc:
+        if str(exc) == "jin10_budget_exhausted":
+            raise HTTPException(
+                status_code=429, detail="今天的金十调用次数已达上限，请阅读来源页面或稍后重试。",
+            ) from None
         message = "这个来源暂不支持站内正文，请使用原文入口。" if str(exc) == "unsupported_source" else (
             "来源页面没有返回可读正文，可能需要登录或使用动态加载；请使用原文入口。"
         )
@@ -348,6 +357,12 @@ async def jin10_connection(x_sync_token: str | None = Header(default=None)) -> d
     require_sync_token(x_sync_token)
     # Handshake and tool schemas only; never invokes a data tool or exposes the token.
     return await probe_jin10()
+
+
+@router.post("/admin/sync/jin10")
+def jin10_collection(x_sync_token: str | None = Header(default=None)) -> dict:
+    require_sync_token(x_sync_token)
+    return sync_jin10()
 
 
 @router.get("/catalog")

@@ -12,6 +12,7 @@ from information_agent.db import SessionLocal
 from information_agent.ingest_articles import sync as sync_articles
 from information_agent.ingest_cninfo import sync as sync_cninfo
 from information_agent.ingest_fed import sync as sync_fed
+from information_agent.ingest_jin10 import sync as sync_jin10
 from information_agent.ingest_pandascore import sync as sync_pandascore
 from information_agent.ingest_perfect_news import sync as sync_perfect_news
 from information_agent.ingest_team_news import sync as sync_team_news
@@ -23,6 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 SYNCERS = {
     "fed": sync_fed,
+    "gold_jin10": sync_jin10,
     "cs2_team_matches": sync_pandascore,
     "cs2_team_news": sync_team_news,
     "dust2_br_news": sync_dust2,
