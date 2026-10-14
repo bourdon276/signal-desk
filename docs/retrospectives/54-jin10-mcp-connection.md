@@ -26,4 +26,6 @@
 
 2026-10-14生产连接诊断status=success、token_present=true，确认工具get_news、list_flash、list_news、search_flash、search_news存在。SDK/jsonschema显式登记为项目依赖，Ruff静态检查通过；未新增或运行功能测试。
 
-真实首次采集结果待部署后记录；本文件不把工具列表成功写成新闻供给成功。
+首次生产采集（run_id `9dda4478-2b5b-414f-a4c0-87a7e6ec91eb`）完成6次数据工具调用，处理310条候选、匹配并新增7条资讯、缓存2篇正文。候选按请求累加，并非310篇独立文章。300条快讯因文档示例有id而实际没有id被拦截。
+
+一次独立、受调用上限约束的生产格式诊断确认：真实search_flash条目仅含content/time/url，官方URL末段为20位数字ID。改为从返回URL验证并恢复身份，使用新适配器缓存版本补采；没有猜测或遍历ID。首次资讯入库成功不代表快讯供给已经完成，补采结果另记。

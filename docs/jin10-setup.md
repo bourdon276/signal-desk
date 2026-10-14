@@ -31,8 +31,11 @@
 
 - `GET /api/admin/sync/jin10`：只初始化连接并取得工具列表，不调用资讯数据工具，不返回Token。
 - `POST /api/admin/sync/jin10`：仅触发黄金金十来源，遵守同一租约、间隔与次数限制。
+- `POST /api/admin/sync/jin10/inspect`：一次受日次数上限约束的快讯格式诊断，仅返回字段名称、类型及ID长度；不返回Token或正文。
 - `GET /api/admin/sync/status`：整轮采集中的 `gold_jin10` 表示金十采集已实际注册。
 
 `not_configured`：服务进程未读取到Token；`http_401`/`http_403`：认证或权限失败；`jin10_tool_error`：工具调用被服务方拒绝；`jin10_result_format`：返回结构与解析约定不同，采集不入库；`cached_or_running`：仍在采集间隔内或另一实例正在处理。
 
 边界：不做实时行情，不保证每个宏观事件都有报道，不遍历金十历史全站。返回分页或超出本轮100条时记录truncated；数据次数与Tavily额度独立，均有各自上限。
+
+实际快讯记录只有content/time/url，没有文档示例里的id；适配器从金十返回的官方URL恢复20位记录ID并校验路径。不会因为文档字段缺失而丢掉可验证身份的快讯。

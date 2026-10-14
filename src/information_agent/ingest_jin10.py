@@ -22,7 +22,7 @@ from information_agent.jin10_client import call_data, configured, error_code, se
 from information_agent.models import AgentRun, Item, SearchBudget, SearchCache, Watch, now_utc
 
 KIND = "jin10_gold_sync"
-CACHE_KEY = hashlib.sha256(b"jin10:gold:macro:v1").hexdigest()
+CACHE_KEY = hashlib.sha256(b"jin10:gold:macro:v2-flash-url-identity").hexdigest()
 PLANS = (("search_flash", "黄金"), ("search_flash", "美国"),
          ("search_flash", "美联储"), ("search_news", "黄金"))
 
@@ -55,6 +55,14 @@ def normalize(row: dict, flash: bool, now: datetime) -> tuple[dict | None, str |
     if stamp is None or not now - timedelta(days=30) <= stamp <= now:
         return None, "missing_or_outside_date"
     raw_id = row.get("id")
+    # Production search_flash records contain content/time/url, unlike the
+    # documentation example that includes id. Recover identity only from the
+    # returned fixed publisher URL, never enumerate or guess article IDs.
+    if raw_id is None and flash and isinstance(row.get("url"), str):
+        approved = safe_link(row["url"], {"flash.jin10.com"})
+        match = re.fullmatch(r"/detail/([0-9]{1,24})", urlsplit(approved).path) if approved else None
+        if match:
+            raw_id = match[1]
     article_id = str(raw_id) if isinstance(raw_id, (str, int)) and not isinstance(raw_id, bool) else ""
     if not re.fullmatch(r"[0-9]{1,24}", article_id):
         return None, "invalid_identity"
@@ -200,6 +208,8 @@ async def collect(db, stats: dict):
                         stats["dropped"][reason] = stats["dropped"].get(reason, 0) + 1
                         continue
                     stats["matched"] += 1
+                    category = gold_reason(values["title"] + " " + values["summary"]) or "黄金市场"
+                    stats["categories"][category] = stats["categories"].get(category, 0) + 1
                     created += int(store_item(db, **values))
                 db.commit()
                 stats["created"] += created
@@ -243,7 +253,7 @@ def sync() -> dict:
         db.commit()
         stats = {"status": "success", "entries": 0, "matched": 0, "created": 0,
                  "tool_calls": 0, "budget_exhausted": False, "truncated": False,
-                 "dropped": {}, "errors": {}, "bodies_updated": 0}
+                 "dropped": {}, "errors": {}, "bodies_updated": 0, "categories": {}}
         try:
             asyncio.run(asyncio.wait_for(collect(db, stats), timeout=100))
         except Exception as exc:
