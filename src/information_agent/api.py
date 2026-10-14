@@ -31,6 +31,7 @@ from information_agent.entities import canonical_team_name, is_team_watch_id, te
 from information_agent.ingest_common import store_item
 from information_agent.ingest_eastmoney import article_url as eastmoney_url
 from information_agent.ingest_eastmoney import read_article as read_eastmoney
+from information_agent.ingest_jin10 import inspect_flash as inspect_jin10_flash
 from information_agent.ingest_jin10 import read_news as read_jin10_news
 from information_agent.ingest_jin10 import sync as sync_jin10
 from information_agent.ingest_perfect_news import read_article, reserve_import, share_news_id
@@ -363,6 +364,12 @@ async def jin10_connection(x_sync_token: str | None = Header(default=None)) -> d
 def jin10_collection(x_sync_token: str | None = Header(default=None)) -> dict:
     require_sync_token(x_sync_token)
     return sync_jin10()
+
+
+@router.post("/admin/sync/jin10/inspect")
+async def jin10_format(x_sync_token: str | None = Header(default=None)) -> dict:
+    require_sync_token(x_sync_token)
+    return await asyncio.wait_for(inspect_jin10_flash(), timeout=40)
 
 
 @router.get("/catalog")

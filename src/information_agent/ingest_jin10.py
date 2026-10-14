@@ -147,6 +147,34 @@ def read_news(url: str) -> dict:
     return {"body": body, "blocks": body.split("\n")}
 
 
+async def inspect_flash() -> dict:
+    """Private provider format diagnosis; one capped call, no raw article bodies or secrets."""
+    async with session() as active:
+        catalog = await tool_catalog(active)
+        with SessionLocal() as db:
+            if not reserve_tool(db):
+                return {"status": "budget_exhausted"}
+        data = await call_data(active, catalog, "search_flash", {"keyword": "黄金"})
+        rows = data.get("items", [])
+        shapes = []
+        for row in rows[:3] if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            value = row.get("id")
+            sample = {"keys": [key for key in row if re.fullmatch(r"[A-Za-z_]{1,50}", key)],
+                      "id_type": type(value).__name__, "id_length": len(str(value)),
+                      "id_numeric": bool(re.fullmatch(r"[0-9]+", str(value))),
+                      "time_type": type(row.get("time")).__name__}
+            url = row.get("url")
+            approved = safe_link(url, {"flash.jin10.com"}) if isinstance(url, str) else None
+            if approved:
+                part = urlsplit(approved).path.rsplit("/", 1)[-1]
+                sample.update(url_id_length=len(part), url_id_numeric=bool(re.fullmatch(r"[0-9]+", part)),
+                              id_matches_url=str(value) == part)
+            shapes.append(sample)
+        return {"status": "success", "entries": len(rows) if isinstance(rows, list) else 0, "shapes": shapes}
+
+
 async def collect(db, stats: dict):
     async with session() as active:
         catalog = await tool_catalog(active)
