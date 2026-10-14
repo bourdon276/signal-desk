@@ -5,7 +5,8 @@ from urllib.parse import urlsplit
 TEAM_DOMAINS = ["hltv.org", "esportsinsider.com", "dexerto.com", "dotesports.com", "bo3.gg", "teamspirit.gg",
                 "dust2.com.br", "news.wmpvp.com", "5eplay.com"]
 STOCK_DOMAINS = ["cninfo.com.cn", "eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn"]
-GOLD_DOMAINS = ["eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn", "kitco.com", "fxstreet.com"]
+GOLD_DOMAINS = ["eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn", "kitco.com", "fxstreet.com",
+                "bls.gov", "federalreserve.gov"]
 DOMAINS = {"team": TEAM_DOMAINS, "stock": STOCK_DOMAINS, "index": STOCK_DOMAINS, "gold": GOLD_DOMAINS}
 FOCUS_BY_KIND = {
     "team": ("interview", "roster"), "stock": ("financial",),

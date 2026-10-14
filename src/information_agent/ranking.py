@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from information_agent.event_identity import event_identity, group_rows
 from information_agent.freshness import recent_filter, view_filter
+from information_agent.gold_news import gold_reason
 from information_agent.models import Feedback, Item, Reading
 from information_agent.news_quality import news_exclusion
 from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
@@ -183,6 +184,8 @@ def ranked_items(
                 "reason": reason,
                 "content_kind": kind,
                 "content_kind_label": KIND_LABELS[kind],
+                "gold_context": gold_reason(item.title + " " + item.summary + " " + item.source_name)
+                if item.watch_id == "gold:london" else None,
             }
         )
     # Stable sorting preserves the database's recency order when scores tie.

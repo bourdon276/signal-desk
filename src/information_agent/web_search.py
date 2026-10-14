@@ -24,6 +24,7 @@ from information_agent.discovery_policy import STOCK_DOMAINS as STOCK_DOMAINS
 from information_agent.discovery_policy import TEAM_DOMAINS as TEAM_DOMAINS
 from information_agent.domain import INDEX_NAMES, STOCK_NAMES
 from information_agent.entities import canonical_team_name, is_team_watch_id
+from information_agent.gold_news import gold_reason
 from information_agent.ingest_common import safe_link, store_item
 from information_agent.ingest_eastmoney import article_url as eastmoney_url
 from information_agent.ingest_eastmoney import read_article as read_eastmoney
@@ -82,8 +83,10 @@ def targets(db, user_id: str | None = None) -> dict[str, dict]:
 def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
     name = re.sub(r"[^\w .-]", " ", target["name"])[:60]
     if target["kind"] == "gold":
-        suffix = "Federal Reserve inflation central bank news" if focus == "macro" else "market news"
-        query, domains = f"spot gold XAUUSD {suffix}", GOLD_DOMAINS
+        # Macro releases need not mention gold in the publisher headline.
+        query = ("美国 CPI PPI PCE 非农 美联储 美元指数 新闻"
+                 if focus == "macro" else "spot gold XAUUSD market news")
+        domains = GOLD_DOMAINS
     elif target["kind"] in {"stock", "index"}:
         suffix = {
             "financial": "财报 业绩", "macro": "宏观 经济 政策 新闻", "market": "市场 动态 新闻",
@@ -163,7 +166,8 @@ def normalize_result(row, target, domains, now):
         return None, "outside_30_days"
     text = title + " " + excerpt
     if target["kind"] == "gold":
-        if not re.search(r"伦敦金|现货黄金|国际黄金|金价|\b(?:gold|bullion|xau/?usd)\b", text, re.I):
+        identity_text = text + (" BLS" if host in {"bls.gov", "www.bls.gov"} else "")
+        if not gold_reason(identity_text):
             return None, "entity_mismatch"
         # A gold keyword on a shop, quote or jewellery page is not market reporting.
         article_path = (
@@ -171,6 +175,10 @@ def normalize_result(row, target, domains, now):
             if host == "kitco.com" or host.endswith(".kitco.com") else
             bool(re.match(r"^/news/[^/]+-\d{10,}", parts.path))
             if host == "fxstreet.com" or host.endswith(".fxstreet.com") else
+            bool(re.fullmatch(r"/news\.release/archives/(?:cpi|ppi|empsit|jolts)_\d{8}\.htm", parts.path))
+            if host in {"bls.gov", "www.bls.gov"} else
+            bool(re.fullmatch(r"/newsevents/(?:pressreleases|speech)/[^/]+\.htm", parts.path))
+            if host in {"federalreserve.gov", "www.federalreserve.gov"} else
             bool(re.search(r"\d{6,}", parts.path))
         )
         if not article_path:
@@ -212,7 +220,8 @@ def normalize_result(row, target, domains, now):
         "source_name": host + ({"team": " · 战队新闻", "gold": " · 黄金资讯"}.get(
             target["kind"], " · 股票资讯",
         )),
-        "source_type": "media",
+        "source_type": "official" if host in {"bls.gov", "www.bls.gov", "federalreserve.gov",
+                                              "www.federalreserve.gov"} else "media",
         "ingestion_mode": "search",
         "published_at": stamp,
     }, None
@@ -320,7 +329,8 @@ def search_cache_key(target: dict, focus: str) -> str:
     query, domains = request_spec(target, focus)
     return hashlib.sha256(
         json.dumps(
-            [SEARCH_POLICY_VERSION, provider().cache_namespace, target["watch_id"], focus, query, domains,
+            ["gold-macro-v1" if target["kind"] == "gold" else SEARCH_POLICY_VERSION,
+             provider().cache_namespace, target["watch_id"], focus, query, domains,
              target.get("time_range", "month")]
         ).encode()
     ).hexdigest()
@@ -457,6 +467,11 @@ def sync() -> dict:
     with SessionLocal() as db:
         unique = {search_cache_key({**value, "time_range": "day"}, "recent"): (value, "recent")
                   for value in targets(db).values()}
+        # Both direct gold reporting and US macro releases are baseline supply.
+        # Share the plan across subscribers and retain all existing credit caps.
+        for value in targets(db).values():
+            if value["kind"] == "gold":
+                unique[search_cache_key({**value, "time_range": "day"}, "macro")] = (value, "macro")
         # Personalized public entity/type plans share cache, never account metadata.
         for user_id in sorted(set(db.scalars(select(Watch.user_id)))):
             profile = acquisition_profile(db, user_id)

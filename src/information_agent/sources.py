@@ -211,7 +211,8 @@ def coverage(db, user_id):
         elif watch_id == "gold:london":
             spec = next(s for s in SOURCE_SPECS if s["watch_id"] == watch_id)
             auto, source, note = True, state(db, spec["kind"], True), spec["description"]
-            note = "美联储政策RSS持续更新；黄金媒体搜索补充现货黄金与宏观报道，含中英文来源。"
+            note = "采集现货黄金报道，以及美国CPI/PPI/PCE、就业、美联储政策、美元与美债等宏观资讯；"
+            note += "美国数据无需在标题中出现黄金，也可收录。美联储政策RSS持续更新。"
             note += "英文标题与摘录可译成中文；不提供实时金价。" if search_configured() else "媒体搜索等待配置。"
         elif watch_id == "esports:cs2":
             auto = pandascore_configured()
