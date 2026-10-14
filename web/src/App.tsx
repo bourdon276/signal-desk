@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { startBackgroundRefresh } from './backgroundRefresh'
 import { needsChineseTranslation } from './contentLanguage'
 import { AcquisitionProfile, DiscoveryPreferences, filteredNewsKinds, focusLabels } from './DiscoveryPreferences'
 
@@ -130,6 +131,7 @@ export default function App() {
   const [batchMode, setBatchMode] = useState(false)
   const reconcileTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshVersion = useRef(0)
+  const lastDeskRefresh = useRef(0)
   const [feedLoading, setFeedLoading] = useState(false)
   const [feedError, setFeedError] = useState(false)
   const [feedDiagnostics, setFeedDiagnostics] = useState<FeedDiagnostics | null>(null)
@@ -163,6 +165,7 @@ export default function App() {
         preferences: { watches: typeof preferences };
       }>(`/desk?view=${view}&news_kind=${view === 'news' && filteredNewsKinds.includes(searchFocus) ? searchFocus : 'all'}${filter === 'all' ? '' : `&watch_id=${encodeURIComponent(filter)}`}`, token)
       if (version !== refreshVersion.current) return
+      lastDeskRefresh.current = Date.now()
       if (preservePosition) {
         const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-feed-card]'))
         const anchor = cards.find(card => card.dataset.feedCard !== changedItemId && f.items.some(item => item.id === card.dataset.feedCard) && card.getBoundingClientRect().bottom > 0)
@@ -178,6 +181,17 @@ export default function App() {
   }, [token, feedView, filter, searchFocus])
   const latestRefresh = useRef(refresh)
   latestRefresh.current = refresh
+  const autoRefreshBlocked = useRef(false)
+  autoRefreshBlocked.current = feedLoading || busy || asking || editing || !!reader || !!feedbackItem || batchMode
+  useEffect(() => {
+    if (!token) return
+    return startBackgroundRefresh({
+      refresh: () => { void latestRefresh.current(undefined, true) },
+      blocked: () => autoRefreshBlocked.current || pendingItems.current.size > 0,
+      lastRefresh: () => lastDeskRefresh.current,
+      markAttempt: now => { lastDeskRefresh.current = now },
+    })
+  }, [token])
   useEffect(() => { setSearchFocus('auto'); setSearchReport(null); setSharedUrl('') }, [filter])
   useEffect(() => {
     if (searchReport?.watchId === filter && searchReport.focus === searchFocus) searchResultRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
