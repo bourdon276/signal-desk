@@ -33,6 +33,7 @@ from information_agent.ingest_eastmoney import article_url as eastmoney_url
 from information_agent.ingest_eastmoney import read_article as read_eastmoney
 from information_agent.ingest_perfect_news import read_article, reserve_import, share_news_id
 from information_agent.ingest_team_news import mentions_team
+from information_agent.jin10_client import probe as probe_jin10
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
 from information_agent.news_quality import news_exclusion
 from information_agent.personalization import matches, user_scope
@@ -340,6 +341,13 @@ def scheduled_search_summary(
 ) -> dict:
     require_sync_token(x_sync_token)
     return daily_search_summary(db)
+
+
+@router.get("/admin/sync/jin10")
+async def jin10_connection(x_sync_token: str | None = Header(default=None)) -> dict:
+    require_sync_token(x_sync_token)
+    # Handshake and tool schemas only; never invokes a data tool or exposes the token.
+    return await probe_jin10()
 
 
 @router.get("/catalog")
