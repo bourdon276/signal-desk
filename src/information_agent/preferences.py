@@ -3,7 +3,7 @@
 import re
 
 from information_agent.discovery_policy import entity_kind, publisher_domain
-from information_agent.gold_news import macro_reason
+from information_agent.gold_news import gold_content_kind
 from information_agent.news_quality import is_prediction
 
 REASONS = {"content_type", "source", "hide_only"}
@@ -19,6 +19,9 @@ KIND_LABELS = {
     "prediction": "赛事预测与赔率",
     "other": "其他资讯",
     "macro": "宏观经济",
+    "macro_data": "经济数据发布",
+    "policy": "美联储与政策发言",
+    "gold_opinion": "机构观点",
     "market": "指数与市场动态",
     "gold_market": "黄金市场",
 }
@@ -35,11 +38,7 @@ def content_kind(item) -> str:
     if item.watch_id.startswith("index:"):
         return "macro" if re.search(r"宏观|美联储|利率|通胀|PMI|经济数据|货币政策", item.title, re.I) else "market"
     if item.watch_id == "gold:london":
-        macro_text = text + " " + (getattr(item, "summary", "") or "") + " " + item.source_name
-        return "macro" if item.source_name == "Federal Reserve Board" or macro_reason(macro_text) or re.search(
-            r"美联储|利率|通胀|央行|经济数据|货币政策|\b(?:fed|fomc|inflation|rates?|cpi|central banks?)\b",
-            text, re.I,
-        ) else "gold_market"
+        return gold_content_kind(item.title, getattr(item, "summary", "") or "", item.source_name)
     if item.watch_id.startswith("stock:"):
         if re.search(r"年度报告|半年度报告|季度报告|财报|业绩|financial|earnings", text):
             return "financial"

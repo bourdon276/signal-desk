@@ -10,10 +10,11 @@ GOLD_DOMAINS = ["eastmoney.com", "10jqka.com.cn", "stcn.com", "cs.com.cn", "kitc
 DOMAINS = {"team": TEAM_DOMAINS, "stock": STOCK_DOMAINS, "index": STOCK_DOMAINS, "gold": GOLD_DOMAINS}
 FOCUS_BY_KIND = {
     "team": ("interview", "roster"), "stock": ("financial",),
-    "index": ("macro", "market"), "gold": ("macro", "gold_market"),
+    "index": ("macro", "market"), "gold": ("macro_data", "policy", "gold_opinion", "gold_market", "macro"),
 }
 FOCUS_LABELS = {
     "recent": "近期综合新闻", "interview": "采访", "roster": "阵容与转会",
+    "macro_data": "经济数据发布", "policy": "美联储与政策发言", "gold_opinion": "机构观点",
     "financial": "财报与业绩", "macro": "宏观经济", "market": "指数与市场动态", "gold_market": "黄金市场",
 }
 

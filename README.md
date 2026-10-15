@@ -198,3 +198,15 @@ uv run uvicorn information_agent.main:app --reload
 [两分钟演示脚本](docs/demo-script.md) · [真实运行复核模板](docs/eval/live-review-template.md) · [朋友5分钟试用](docs/beta-5-minute-guide.md)。模板与脚本是待执行材料，运行记录需结合实际回答和原文才能评估事实支持。
 
 最新真实复测见[10月10日记录](docs/eval/live-results-20261010.md)：两例修复复测，保留股票日期失败和未核实事实，不代表整体准确率。
+
+
+### 2026-10-15：阅读节奏与可复核指标
+
+新增近24小时“今日精选”、历史补录入口及保守的宏观数据事件聚合。新来源首批每个对象最多3条进入近期候选，其余保留为补录；补录不计入日常未读，不伪造已读。黄金兴趣进一步区分经济数据、政策发言、机构观点和价格动态。
+
+- [实现边界与复盘](docs/retrospectives/55-daily-briefing-and-backfill.md)
+- [量化指标、历史观测与简历呈现](docs/eval/objective-metrics.md)
+- [有效渠道与当前接入状态](docs/news-channel-shortlist.md)
+- [只读运行记录统计脚本](scripts/eval/operational_report.py)
+
+本轮静态检查和生产构建通过；新版浏览器验收和7天指标观察尚未完成。历史23条运行记录的统计不代表新版性能。

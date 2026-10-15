@@ -24,7 +24,7 @@ from information_agent.discovery_policy import STOCK_DOMAINS as STOCK_DOMAINS
 from information_agent.discovery_policy import TEAM_DOMAINS as TEAM_DOMAINS
 from information_agent.domain import INDEX_NAMES, STOCK_NAMES
 from information_agent.entities import canonical_team_name, is_team_watch_id
-from information_agent.gold_news import gold_reason
+from information_agent.gold_news import GOLD_FOCUSES, gold_reason, kind_matches
 from information_agent.ingest_common import safe_link, store_item
 from information_agent.ingest_eastmoney import article_url as eastmoney_url
 from information_agent.ingest_eastmoney import read_article as read_eastmoney
@@ -38,7 +38,7 @@ from information_agent.search_provider import configured, provider
 from information_agent.search_schedule import automatic_due_at, fair_order
 
 KIND = "web_news_search_sync"
-FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market", "gold_market"}
+FOCUSES = {"auto", "recent", "roster", "interview", "financial", "macro", "market"} | GOLD_FOCUSES
 SEARCH_POLICY_VERSION = "entity-news-v8-gold-source-preferences"
 
 
@@ -84,8 +84,12 @@ def request_spec(target: dict, focus: str) -> tuple[str, list[str]]:
     name = re.sub(r"[^\w .-]", " ", target["name"])[:60]
     if target["kind"] == "gold":
         # Macro releases need not mention gold in the publisher headline.
-        query = ("美国 CPI PPI PCE 非农 美联储 美元指数 新闻"
-                 if focus == "macro" else "spot gold XAUUSD market news")
+        query = {
+            "macro": "美国 CPI PPI PCE 非农 美联储 美元指数 新闻",
+            "macro_data": "美国 CPI PPI PCE 非农 经济数据 公布",
+            "policy": "美联储 官员 讲话 利率 决议 Fed FOMC",
+            "gold_opinion": "黄金 机构 分析师 展望 gold analyst outlook",
+        }.get(focus, "spot gold XAUUSD market news")
         domains = GOLD_DOMAINS
     elif target["kind"] in {"stock", "index"}:
         suffix = {
@@ -402,8 +406,8 @@ async def discover(target: dict, focus: str = "recent", user_id: str | None = No
                     dropped[reason] = dropped.get(reason, 0) + 1
                     rejected.append(rejection_detail(row, reason, domains))
                     continue
-                if focus in {"interview", "roster", "financial", "macro", "market", "gold_market"} and (
-                    content_kind(SimpleNamespace(**values)) != focus
+                if focus in FOCUSES - {"auto", "recent"} and (
+                    not kind_matches(content_kind(SimpleNamespace(**values)), focus)
                 ):
                     dropped["focus_mismatch"] = dropped.get("focus_mismatch", 0) + 1
                     rejected.append(rejection_detail(row, "focus_mismatch", domains))

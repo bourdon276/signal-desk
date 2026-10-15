@@ -1,16 +1,17 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from information_agent.event_identity import event_identity, group_rows
 from information_agent.freshness import recent_filter, view_filter
-from information_agent.gold_news import gold_reason
+from information_agent.gold_news import gold_reason, kind_matches
 from information_agent.models import Feedback, Item, Reading
 from information_agent.news_quality import news_exclusion
 from information_agent.personalization import article_url, candidate_filter, matches, overview, user_scope
 from information_agent.preferences import KIND_LABELS, REASONS, content_kind, preference_key
 from information_agent.query_policy import display_title
+from information_agent.reading_policy import historical_import, initial_source_backfill
 
 
 def ranked_items(
@@ -26,6 +27,7 @@ def ranked_items(
     diagnostics: dict | None = None,
     group_events: bool = True,
     reading_order: bool = False,
+    delivery: str = "all",
 ) -> list[dict]:
     watch_ids, topics = user_scope(db, user_id)
     if diagnostics is not None:
@@ -47,18 +49,22 @@ def ranked_items(
         return []
     candidate_watches = {watch_id} if watch_id else watch_ids
     candidate_topics = [topic for topic in topics if topic.id == watch_id] if watch_id else topics
-    items = list(
-        db.scalars(
-            select(Item)
-            .where(
-                candidate_filter(candidate_watches, candidate_topics),
-                view_filter(view),
-                recent_filter(datetime.now(UTC)) if recent_only else True,
-            )
-            .order_by(Item.published_at.desc().nulls_last(), Item.created_at.desc())
-            .limit(500)
-        )
-    )
+    # A prolific new source must not evict every other watched object before ranking.
+    candidates = select(
+        Item.id,
+        func.row_number().over(
+            partition_by=Item.watch_id,
+            order_by=(Item.published_at.desc().nulls_last(), Item.created_at.desc(), Item.id),
+        ).label("position"),
+    ).where(
+        candidate_filter(candidate_watches, candidate_topics), view_filter(view),
+        recent_filter(datetime.now(UTC)) if recent_only else True,
+    ).subquery()
+    items = list(db.scalars(
+        select(Item).join(candidates, candidates.c.id == Item.id)
+        .order_by(candidates.c.position, Item.published_at.desc().nulls_last(), Item.id).limit(500)
+    ))
+    items.sort(key=lambda item: (item.published_at or item.created_at).isoformat(), reverse=True)
     if diagnostics is not None:
         diagnostics["candidate_limit_reached"] = len(items) == 500
     items = [item for item in items if matches(item, candidate_watches, candidate_topics)]
@@ -70,7 +76,7 @@ def ranked_items(
             diagnostics["quality_excluded"] = len(items) - len(qualified)
         items = qualified
     if news_kind != "all":
-        of_kind = [item for item in items if content_kind(item) == news_kind]
+        of_kind = [item for item in items if kind_matches(content_kind(item), news_kind)]
         if diagnostics is not None:
             diagnostics["kind_excluded"] = len(items) - len(of_kind)
         items = of_kind
@@ -126,6 +132,7 @@ def ranked_items(
                 watch_weight[target] = min(3, watch_weight[target] + 1)
             liked.add(item.id)
 
+    backfill_ids = initial_source_backfill(db, items) if reading_order else set()
     now = datetime.now(UTC)
     rows = []
     for item in items:
@@ -173,6 +180,7 @@ def ranked_items(
                 "overview": overview(item),
                 "matched_watch_ids": matched,
                 "is_read": item.id in read_ids,
+                "is_history": historical_import(item) or item.id in backfill_ids,
                 "url": article_url(item),
                 "source_name": item.source_name,
                 "source_type": item.source_type,
@@ -190,9 +198,13 @@ def ranked_items(
         )
     # Stable sorting preserves the database's recency order when scores tie.
     rows.sort(key=lambda row: -row["score"])
+    if diagnostics is not None:
+        diagnostics["history_count"] = sum(row["is_history"] for row in rows)
+    if delivery != "all":
+        rows = [row for row in rows if row["is_history"] == (delivery == "history")]
     raw_count = len(rows)
     if group_events:
-        rows = group_rows(rows)
+        rows = group_rows(rows, macro_events=reading_order)
     if reading_order:
         # Feed order is independent of preference scoring used by Agent retrieval.
         rows.sort(
@@ -216,7 +228,7 @@ def ranked_items(
         ][:20]
         diagnostics.update(
             eligible_count=len(rows),
-            unread_count=sum(not row["is_read"] for row in rows),
+            unread_count=sum(not row["is_read"] and not row["is_history"] for row in rows),
             returned_count=min(limit, len(rows)),
             omitted_by_limit=max(0, len(rows) - limit),
         )

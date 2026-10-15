@@ -59,6 +59,7 @@ class SearchItems(Tool):
                 "view": {"type": "string", "enum": ["news", "matches", "all"]},
                 "news_kind": {"type": "string", "enum": [
                     "all", "interview", "roster", "financial", "macro", "market", "gold_market",
+                    "macro_data", "policy", "gold_opinion",
                 ]},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 5},
             },
@@ -240,7 +241,7 @@ class SearchNews(Tool):
                 group_events=False,
                 view="news",
                 watch_id=watch_id,
-                news_kind=focus if focus in {"interview", "roster", "financial", "macro", "market", "gold_market"}
+                news_kind=focus if focus in FOCUSES - {"auto", "recent"}
                 else "all",
             )
         candidates = [r for r in candidates if r["id"] in allowed_ids]

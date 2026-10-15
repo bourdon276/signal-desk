@@ -31,3 +31,30 @@ def gold_reason(text: str) -> str | None:
     if reason:
         return reason
     return "黄金市场" if re.search(GOLD_CONTEXT, text, re.I) else None
+
+
+GOLD_FOCUSES = {"macro_data", "policy", "gold_opinion", "gold_market"}
+
+
+def gold_content_kind(title: str, summary: str = "", source: str = "") -> str:
+    # Prefer the headline: a background paragraph about the Fed must not turn
+    # every gold price report into a policy article.
+    if re.search(r"(?<![a-z])(?:CPI|PPI|PCE|GDP|payrolls?|JOLTS)(?![a-z])|非农|失业|零售销售|通胀数据", title, re.I):
+        return "macro_data"
+    if re.search(r"高盛|摩根|瑞银|机构|分析师|策略师|展望|研报|\b(?:analysts?|outlook|forecast|Goldman|UBS)\b",
+                 title, re.I):
+        return "gold_opinion"
+    if macro_reason(title) == "美联储政策" or source == "Federal Reserve Board":
+        return "policy"
+    if re.search(GOLD_CONTEXT, title, re.I):
+        return "gold_market"
+    reason = macro_reason(title + " " + summary)
+    if reason in {"美国通胀数据", "美国就业数据", "美国经济数据"}:
+        return "macro_data"
+    if reason == "美联储政策":
+        return "policy"
+    return "macro" if reason else "gold_market"
+
+
+def kind_matches(actual: str, requested: str) -> bool:
+    return actual == requested or (requested == "macro" and actual in {"macro_data", "policy"})

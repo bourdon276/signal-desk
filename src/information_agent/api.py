@@ -42,6 +42,7 @@ from information_agent.news_quality import news_exclusion
 from information_agent.personalization import matches, user_scope
 from information_agent.query_policy import PRIVATE_DENIAL, query_filters, query_window, requests_other_users
 from information_agent.ranking import ranked_items
+from information_agent.reading_policy import daily_briefing
 from information_agent.search_provider import configured as search_configured
 from information_agent.security import current_user, issue_token, password_hash, password_matches
 from information_agent.sources import coverage, public_sources
@@ -458,18 +459,38 @@ def update_watch(payload: WatchInput, user: User = Depends(current_user), db: Se
 def feed(
     view: Literal["news", "matches", "all"] = "news",
     watch_id: str | None = Query(default=None, max_length=64),
-    news_kind: Literal["all", "interview", "roster", "financial", "macro", "market", "gold_market"] = "all",
+    news_kind: Literal[
+        "all", "interview", "roster", "financial", "macro", "market", "gold_market",
+        "macro_data", "policy", "gold_opinion",
+    ] = "all",
     limit: int = Query(default=50, ge=1, le=100),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
+    delivery: Literal["current", "history", "all"] = "current",
 ) -> dict:
     diagnostics = {}
     items = ranked_items(
-        db, user.id, limit, view=view, watch_id=watch_id, news_kind=news_kind,
-        diagnostics=diagnostics, reading_order=True,
+        db, user.id, 500, view=view, watch_id=watch_id, news_kind=news_kind,
+        diagnostics=diagnostics, reading_order=True, delivery=delivery,
     )
+    picks = daily_briefing(items, now_utc(), min(6, limit)) if view == "news" and delivery != "history" else []
+    selected_ids = {row["id"] for row in picks}
+    # Include the balanced picks even when the newest 100 rows are all gold flashes.
+    page = items[:limit]
+    missing = [row for row in picks if row["id"] not in {row["id"] for row in page}]
+    if missing:
+        optional = [row for row in page if row["id"] not in selected_ids]
+        kept = [row for row in page if row["id"] in selected_ids]
+        page = kept + missing + optional[:max(0, limit - len(kept) - len(missing))]
+    page.sort(key=lambda row: datetime.fromisoformat(row["published_at"]).timestamp()
+              if row["published_at"] else float("-inf"), reverse=True)
+    page.sort(key=lambda row: row["is_read"])
+    reasons = {row["id"]: row["briefing_reason"] for row in picks}
+    diagnostics.update(returned_count=len(page), omitted_by_limit=max(0, len(items) - len(page)))
     return {
-        "items": items,
+        "items": [{**row, "briefing_reason": reasons.get(row["id"])} for row in page],
+        "briefing_ids": [row["id"] for row in picks if row["id"] in {r["id"] for r in page}],
+        "delivery": delivery,
         "view": view,
         "watch_id": watch_id,
         "news_kind": news_kind,
@@ -546,9 +567,13 @@ def undo_feedback(feedback_id: str, user: User = Depends(current_user), db: Sess
 def desk(
     view: Literal["news", "matches", "all"] = "news",
     watch_id: str | None = Query(default=None, max_length=64),
-    news_kind: Literal["all", "interview", "roster", "financial", "macro", "market", "gold_market"] = "all",
+    news_kind: Literal[
+        "all", "interview", "roster", "financial", "macro", "market", "gold_market",
+        "macro_data", "policy", "gold_opinion",
+    ] = "all",
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
+    delivery: Literal["current", "history", "all"] = "current",
 ) -> dict:
     """One authenticated round-trip for the first useful screen; no external I/O."""
     last_collection = db.scalar(
@@ -577,7 +602,7 @@ def desk(
             ),
         },
         "watches": list_watches(user, db),
-        "feed": feed(view, watch_id, news_kind, 100, user, db),
+        "feed": feed(view, watch_id, news_kind, 100, user, db, delivery),
         "feedback": list_feedback(user, db),
         "topics": list_topics(user, db),
         "catalog": catalog(user, db),
