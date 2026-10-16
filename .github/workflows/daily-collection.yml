@@ -5,6 +5,11 @@ on:
     - cron: '43 22,11 * * *'
     - cron: '13 5 * * *'
   workflow_dispatch:
+    inputs:
+      observe_only:
+        description: 'Only archive existing collection evidence; do not collect news'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -18,6 +23,7 @@ jobs:
       SERVICE_URL: https://signal-desk-demo.onrender.com
       SYNC_TRIGGER_TOKEN: ${{ secrets.SYNC_TRIGGER_TOKEN }}
     steps:
+      - uses: actions/checkout@v4
       - name: Check scheduler configuration
         run: |
           if [ -z "$SYNC_TRIGGER_TOKEN" ]; then
@@ -25,6 +31,8 @@ jobs:
             exit 1
           fi
       - name: Wake service and prepare current subscriptions
+        if: ${{ !inputs.observe_only }}
+        timeout-minutes: 20
         run: |
           curl --fail --silent --show-error --connect-timeout 15 --max-time 180 \
             --retry 2 --retry-delay 15 "$SERVICE_URL/ready" > /dev/null
@@ -76,3 +84,14 @@ jobs:
           if result['status'] not in {'success', 'partial'}:
               raise SystemExit('Collection did not finish successfully')
           PY
+      - name: Capture collection evidence (read only)
+        if: always()
+        run: python scripts/eval/capture_observation.py --output evidence/collection-observation.json
+      - name: Preserve collection evidence including capture failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collection-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/collection-observation.json
+          retention-days: 30
+          if-no-files-found: warn

@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -105,7 +107,10 @@ def run_once() -> dict:
             run = db.get(AgentRun, run_id)
             run.status = status
             run.finished_at = now_utc()
-            run.detail = json.dumps(results, ensure_ascii=False)
+            commit = os.environ.get("RENDER_GIT_COMMIT", "")
+            run.detail = json.dumps({
+                **results, "_deployment_commit": commit if re.fullmatch(r"[a-f0-9]{40}", commit) else None,
+            }, ensure_ascii=False)
             db.commit()
         return {"status": status, "run_id": run_id, "sources": results}
     finally:

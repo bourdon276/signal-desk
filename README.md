@@ -210,3 +210,10 @@ uv run uvicorn information_agent.main:app --reload
 - [只读运行记录统计脚本](scripts/eval/operational_report.py)
 
 本轮静态检查和生产构建通过；新版浏览器验收和7天指标观察尚未完成。历史23条运行记录的统计不代表新版性能。
+
+### 运行证据自动归档
+
+既有每日采集任务会保存脱敏的固定来源观察快照，Actions Artifact保留30天；包含失败/跳过状态，按运行ID去重汇总。首周观察窗口为北京时间2026-10-16至22日，尚不能提前声称完成一周指标。
+
+- [观察协议与复算步骤](docs/eval/observation-week-20261016.md)
+- [证据归档复盘](docs/retrospectives/56-observation-evidence-archive.md)

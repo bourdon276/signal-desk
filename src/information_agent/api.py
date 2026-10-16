@@ -39,6 +39,7 @@ from information_agent.ingest_team_news import mentions_team
 from information_agent.jin10_client import probe as probe_jin10
 from information_agent.models import AgentRun, Feedback, Item, Reading, Topic, User, Watch, now_utc
 from information_agent.news_quality import news_exclusion
+from information_agent.observation import snapshot as observation_snapshot
 from information_agent.personalization import matches, user_scope
 from information_agent.query_policy import PRIVATE_DENIAL, query_filters, query_window, requests_other_users
 from information_agent.ranking import ranked_items
@@ -352,6 +353,15 @@ def scheduled_search_summary(
 ) -> dict:
     require_sync_token(x_sync_token)
     return daily_search_summary(db)
+
+
+@router.get("/admin/sync/observation")
+def collection_observation(
+    days: int = Query(default=7, ge=1, le=7),
+    x_sync_token: str | None = Header(default=None), db: Session = Depends(get_db),
+) -> dict:
+    require_sync_token(x_sync_token)
+    return observation_snapshot(db, days)
 
 
 @router.get("/admin/sync/jin10")
